@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-ink-950 text-cream-100 antialiased;
+  padding-bottom: env(safe-area-inset-bottom);
+
+  background-image:
+    radial-gradient(1100px 520px at 8% -12%, rgba(36, 54, 86, 0.45), transparent 58%),
+    radial-gradient(900px 420px at 100% 0%, rgba(122, 36, 48, 0.16), transparent 52%);
+}
+
+.surface-card {
+  @apply rounded-2xl border border-cream-200/10 bg-ink-900/85 shadow-card backdrop-blur;
+}
+
+.gold-rule {
+  @apply h-px w-full bg-gradient-to-r from-transparent via-cream-200/25 to-transparent;
+}

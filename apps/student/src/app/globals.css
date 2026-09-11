@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-ink-950 text-cream-100 antialiased;
+  background-image:
+    radial-gradient(1100px 520px at 8% -12%, rgba(36, 54, 86, 0.45), transparent 58%),
+    radial-gradient(900px 420px at 100% 0%, rgba(122, 36, 48, 0.16), transparent 52%);
+}
+
+.surface-card {
+  @apply rounded-2xl border border-cream-200/10 bg-ink-900/85 shadow-card backdrop-blur;
+}

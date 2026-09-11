@@ -1,0 +1,2 @@
+-- Edge functions can be added later. Vote submission is handled by
+-- PostgreSQL RPC submit_vote plus the Next.js voting API (Turnstile).
