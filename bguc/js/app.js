@@ -1,4 +1,4 @@
-import { COLS } from "./config.js";
+import { COLS, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { t, escapeHtml, wordCount, classOptions } from "./i18n.js";
 import { supabase, mediaUrl, preview, qs } from "./db.js";
 import { mountChrome, path } from "./chrome.js";
@@ -148,6 +148,13 @@ async function voteLoginPage() {
     <p id="err"></p>
   </div>`;
   document.getElementById("google").onclick = async () => {
+    const err = document.getElementById("err");
+    // A disabled provider makes Supabase answer the authorize redirect with raw
+    // JSON, so check first and keep the voter on a readable page.
+    if ((await googleEnabled()) === false) {
+      err.innerHTML = `<p class="alert err">Google sign-in is not switched on yet. Please tell the organisers.</p>`;
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -155,8 +162,22 @@ async function voteLoginPage() {
         queryParams: { prompt: "select_account" },
       },
     });
-    if (error) document.getElementById("err").innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
+    if (error) err.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
   };
+}
+
+/** true / false, or null when the check itself could not run. */
+async function googleEnabled() {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: SUPABASE_ANON_KEY },
+    });
+    if (!res.ok) return null;
+    const settings = await res.json();
+    return Boolean(settings?.external?.google);
+  } catch {
+    return null;
+  }
 }
 
 async function projectPage() {
