@@ -1,6 +1,5 @@
 import { t } from "./i18n.js";
 import { supabase, moduleName } from "./db.js";
-import { organiserToken, clearOrganiserSession } from "./organiser.js";
 
 export function root() {
   return window.BGUC_ROOT || ".";
@@ -40,25 +39,13 @@ export async function mountChrome() {
       </nav>
     </div>`;
   } else if (mod === "admin") {
-    const inAdmin = Boolean(organiserToken());
     header.innerHTML = `<div class="top-inner">
-      ${brand(inAdmin ? "index.html" : "login.html", t("admin"))}
+      ${brand("index.html", t("admin"))}
       <nav class="nav">
-        ${
-          inAdmin
-            ? `<a href="index.html">Overview</a><a href="projects.html">Projects</a><a href="students.html">Students</a>
-               <a href="votes.html">Votes</a><a href="settings.html">Settings</a>
-               <button type="button" id="admin-out">${t("signOut")}</button>`
-            : ""
-        }
+        <a href="index.html">Overview</a><a href="projects.html">Projects</a><a href="students.html">Students</a>
+        <a href="votes.html">Votes</a><a href="settings.html">Settings</a>
       </nav>
     </div>`;
-    document.getElementById("admin-out")?.addEventListener("click", async () => {
-      const token = organiserToken();
-      if (token) await supabase.rpc("organiser_logout", { p_token: token }).catch(() => {});
-      clearOrganiserSession();
-      location.href = "login.html";
-    });
   } else {
     const {
       data: { user },

@@ -25,7 +25,7 @@ supabase/migrations        — schema, RLS, RPCs, storage
 scripts/import-students.ts — CSV inspect + idempotent import
 ```
 
-**Official vote rule:** one authenticated Google account = one vote. PostgreSQL `UNIQUE (voter_id)` on `votes` is the source of truth. Browser storage, cookies, IP, and fingerprints are not used to enforce uniqueness.
+**Official vote rule:** one authenticated Google account = one vote in each group, so at most one Group A vote and one Group B vote. PostgreSQL `UNIQUE (voter_id, class_group)` on `votes` is the source of truth. Browser storage, cookies, IP, and fingerprints are not used to enforce uniqueness.
 
 Private fields (`contact_number`, `whatsapp_number`, `guardian_*`) live only on `students`. The voting app never queries that table.
 
@@ -151,7 +151,7 @@ Students register, claim an imported record (`project code` + phone), then creat
 npm run dev:voting
 ```
 
-Public visitors browse approved projects, sign in with Google, confirm, and submit one vote. Duplicate votes return: “You have already voted. Each person can vote only once.”
+Public visitors browse approved projects, sign in with Google, confirm, and submit one vote per group. A second vote in the same group returns: “You have already voted in Group A. Each person can vote once in each group.”
 
 ## 12. Admin website
 

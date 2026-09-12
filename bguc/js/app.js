@@ -2,7 +2,6 @@ import { COLS, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { t, escapeHtml, wordCount, classOptions, isOtherClass, normalizeClass } from "./i18n.js";
 import { supabase, mediaUrl, preview, qs } from "./db.js";
 import { mountChrome, path } from "./chrome.js";
-import { organiserToken, saveOrganiserSession, clearOrganiserSession } from "./organiser.js";
 
 const page = document.body.dataset.page;
 
@@ -28,25 +27,6 @@ try {
 } catch (err) {
   const app = document.getElementById("app");
   if (app) app.innerHTML = `<p class="alert err">${escapeHtml(err.message || String(err))}</p>`;
-}
-
-function requireOrganiser() {
-  const token = organiserToken();
-  if (!token) {
-    clearOrganiserSession();
-    location.href = "login.html";
-    return null;
-  }
-  return token;
-}
-
-/** A dead or tampered token must send the organiser back to the login form. */
-function organiserExpired(error) {
-  if (!error) return false;
-  if (!/organiser session expired|unauthorized|JWT/i.test(error.message || "")) return false;
-  clearOrganiserSession();
-  location.href = "login.html";
-  return true;
 }
 
 async function homePage() {
@@ -589,52 +569,18 @@ async function studentRanking() {
     }</tbody></table>`;
 }
 
+/** The admin module has no login, so this page only forwards to the overview. */
 function adminLogin() {
-  if (organiserToken()) {
-    location.href = "index.html";
-    return;
-  }
-  const app = document.getElementById("app");
-  app.innerHTML = `<form class="form" id="f">
-    <h1>Admin sign in</h1>
-    <p class="muted">Use the organiser account.</p>
-    <label>Username</label><input name="username" autocomplete="username" required />
-    <label>Password</label><input name="password" type="password" autocomplete="current-password" required />
-    <button class="btn">${t("signIn")}</button>
-    <p id="err"></p>
-  </form>`;
-  document.getElementById("f").onsubmit = async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const err = document.getElementById("err");
-    err.innerHTML = "";
-    const { data, error } = await supabase.rpc("organiser_login", {
-      p_username: String(fd.get("username")).trim(),
-      p_password: String(fd.get("password")),
-    });
-    if (error) {
-      err.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
-      return;
-    }
-    if (!data?.ok) {
-      err.innerHTML = `<p class="alert err">${escapeHtml(data?.message || "Wrong username or password.")}</p>`;
-      return;
-    }
-    saveOrganiserSession(data.token, data.expires_at);
-    location.href = "index.html";
-  };
+  location.replace("index.html");
 }
 
 async function adminOverview() {
-  const token = requireOrganiser();
-  if (!token) return;
-  const { data: projects, error } = await supabase.rpc("organiser_projects", { p_token: token });
-  if (organiserExpired(error)) return;
-  const { data: students } = await supabase.rpc("organiser_students", { p_token: token });
-  const { data: votes } = await supabase.rpc("organiser_votes", { p_token: token });
+  const { data: projects, error } = await supabase.rpc("organiser_projects");
+  const { data: students } = await supabase.rpc("organiser_students");
+  const { data: votes } = await supabase.rpc("organiser_votes");
   const list = projects ?? [];
   if (error) {
-    document.getElementById("app").innerHTML = `<p class="alert err">Run supabase/migrations/0014_static_organiser.sql in Supabase so admin can load all projects. ${escapeHtml(error.message)}</p>`;
+    document.getElementById("app").innerHTML = `<p class="alert err">Run supabase/migrations/0016_open_organiser.sql in Supabase so admin can load all projects. ${escapeHtml(error.message)}</p>`;
     return;
   }
   document.getElementById("app").innerHTML = `<h1>Exhibition overview</h1>
@@ -652,10 +598,7 @@ async function adminOverview() {
 }
 
 async function adminProjects() {
-  const token = requireOrganiser();
-  if (!token) return;
-  const { data: projects, error } = await supabase.rpc("organiser_projects", { p_token: token });
-  if (organiserExpired(error)) return;
+  const { data: projects, error } = await supabase.rpc("organiser_projects");
   const app = document.getElementById("app");
   if (error) {
     app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
@@ -679,13 +622,11 @@ async function adminProjects() {
   app.querySelectorAll("[data-act]").forEach((btn) => {
     btn.onclick = async () => {
       const status = btn.getAttribute("data-act");
-      const { data, error: setErr } = await supabase.rpc("organiser_set_status", {
-        p_token: token,
+      const { data } = await supabase.rpc("organiser_set_status", {
         p_project_id: btn.getAttribute("data-id"),
         p_status: status,
         p_reason: status === "REJECTED" ? "Does not meet exhibition guidelines" : null,
       });
-      if (organiserExpired(setErr)) return;
       if (!data?.ok) alert(data?.message || "Could not update");
       else location.reload();
     };
@@ -693,19 +634,16 @@ async function adminProjects() {
 }
 
 async function adminProject() {
-  const token = requireOrganiser();
-  if (!token) return;
   const id = qs("id");
-  const { data: all, error } = await supabase.rpc("organiser_projects", { p_token: token });
-  if (organiserExpired(error)) return;
+  const { data: all } = await supabase.rpc("organiser_projects");
   const p = (all ?? []).find((x) => x.id === id);
   const app = document.getElementById("app");
   if (!p) {
     app.innerHTML = `<p class="alert err">Project not found.</p>`;
     return;
   }
-  const { data: media } = await supabase.rpc("organiser_project_media", { p_token: token, p_project_id: id });
-  const { data: members } = await supabase.rpc("organiser_project_members", { p_token: token, p_project_id: id });
+  const { data: media } = await supabase.rpc("organiser_project_media", { p_project_id: id });
+  const { data: members } = await supabase.rpc("organiser_project_members", { p_project_id: id });
   const cover = await mediaUrl(p.cover_image_url);
   const photos = [cover];
   for (const m of media ?? []) photos.push(await mediaUrl(m.media_url));
@@ -724,13 +662,11 @@ async function adminProject() {
       <button class="btn line" id="pd" type="button">Reset to pending</button>
     </div>`;
   const set = async (status) => {
-    const { error: setErr } = await supabase.rpc("organiser_set_status", {
-      p_token: token,
+    await supabase.rpc("organiser_set_status", {
       p_project_id: id,
       p_status: status,
       p_reason: status === "REJECTED" ? "Does not meet exhibition guidelines" : null,
     });
-    if (organiserExpired(setErr)) return;
     location.reload();
   };
   document.getElementById("ap").onclick = () => set("APPROVED");
@@ -739,10 +675,7 @@ async function adminProject() {
 }
 
 async function adminStudents() {
-  const token = requireOrganiser();
-  if (!token) return;
-  const { data: students, error } = await supabase.rpc("organiser_students", { p_token: token });
-  if (organiserExpired(error)) return;
+  const { data: students, error } = await supabase.rpc("organiser_students");
   const app = document.getElementById("app");
   if (error) {
     app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
@@ -759,10 +692,7 @@ async function adminStudents() {
 }
 
 async function adminVotes() {
-  const token = requireOrganiser();
-  if (!token) return;
-  const { data: votes, error } = await supabase.rpc("organiser_votes", { p_token: token });
-  if (organiserExpired(error)) return;
+  const { data: votes, error } = await supabase.rpc("organiser_votes");
   const app = document.getElementById("app");
   if (error) {
     app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
@@ -777,10 +707,7 @@ async function adminVotes() {
 }
 
 async function adminSettings() {
-  const token = requireOrganiser();
-  if (!token) return;
-  const { data: rows, error } = await supabase.rpc("organiser_settings", { p_token: token });
-  if (organiserExpired(error)) return;
+  const { data: rows, error } = await supabase.rpc("organiser_settings");
   const s = rows?.[0];
   const app = document.getElementById("app");
   if (error) {
@@ -797,12 +724,10 @@ async function adminSettings() {
   document.getElementById("s").onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const { data, error: saveErr } = await supabase.rpc("organiser_save_settings", {
-      p_token: token,
+    const { data } = await supabase.rpc("organiser_save_settings", {
       p_voting_enabled: fd.get("voting_enabled") === "on",
       p_results_visible: fd.get("results_visible") === "on",
     });
-    if (organiserExpired(saveErr)) return;
     document.getElementById("ok").innerHTML = data?.ok
       ? `<p class="alert ok">Saved.</p>`
       : `<p class="alert err">${escapeHtml(data?.message || "Failed")}</p>`;
