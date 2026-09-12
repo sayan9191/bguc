@@ -7,6 +7,12 @@ const page = document.body.dataset.page;
 
 await mountChrome();
 
+// Supabase strips its tokens out of the fragment after sign-in but leaves a
+// bare "#" in the address bar, which looks like a broken redirect.
+if (location.hash && !location.hash.includes("access_token")) {
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
 try {
   if (page === "home") await homePage();
   if (page === "leaderboard") await leaderboardPage();
