@@ -52,7 +52,6 @@ async function homePage() {
       <p>${t("voteFavourite")}</p>
       <p class="rule">${t("voteRule")}</p>
       <p class="muted">${t("groupHint")}</p>
-      <p class="muted" id="my-votes"></p>
     </section>
     <form class="search" method="get">
       ${group !== "All" ? `<input type="hidden" name="group" value="${group}" />` : ""}
@@ -78,7 +77,6 @@ async function homePage() {
     data: { user },
   } = await supabase.auth.getUser();
   const groupVotes = user ? (await supabase.rpc("my_group_votes")).data ?? {} : {};
-  renderMyVotes(groupVotes, user);
 
   const list = document.getElementById("list");
   if (!projects?.length) {
@@ -227,7 +225,6 @@ function wireCardVotes(scope, user, groupVotes) {
       const countEl = btn.closest(".body").querySelector("[data-votes]");
       if (countEl) countEl.textContent = String(Number(countEl.textContent || 0) + 1);
       lockGroup(scope, group, id);
-      renderMyVotes(groupVotes, user);
     };
   });
 }
@@ -281,25 +278,6 @@ function confirmVote(name, label) {
     host.querySelector("[data-no]").onclick = () => close(false);
     host.querySelector("[data-yes]").onclick = () => close(true);
   });
-}
-
-/** Tells a signed-in voter which of their two group votes are still unused. */
-function renderMyVotes(groupVotes, user) {
-  const box = document.getElementById("my-votes");
-  if (!box) return;
-  if (!user) {
-    box.innerHTML = "";
-    return;
-  }
-  box.innerHTML = ["A", "B"]
-    .map((g) => {
-      const label = groupName(g);
-      const mine = groupVotes[g];
-      return mine?.voted
-        ? `${label}: voted${mine.project_name ? ` for ${escapeHtml(mine.project_name)}` : ""}`
-        : `${label}: vote still available`;
-    })
-    .join(" · ");
 }
 
 async function leaderboardPage() {
