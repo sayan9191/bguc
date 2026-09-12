@@ -152,7 +152,7 @@ function cardHtml(p, photos, votes, user, groupVotes) {
           : ""
       }
       ${p.mentor_name ? `<p class="muted">Guidance: ${escapeHtml(p.mentor_name)}</p>` : ""}
-      ${votes == null ? "" : `<p class="muted">${votes} ${t("votesCount")}</p>`}
+      ${votes == null ? "" : `<p class="muted"><span data-votes>${votes}</span> ${t("votesCount")}</p>`}
       ${voteButtonHtml(p, user, groupVotes)}
     </div>
   </article>`;
@@ -223,6 +223,9 @@ function wireCardVotes(scope, user, groupVotes) {
         return;
       }
       groupVotes[group] = { voted: true, project_id: id, project_name: name };
+      // Reflect the new total straight away rather than waiting for a reload.
+      const countEl = btn.closest(".body").querySelector("[data-votes]");
+      if (countEl) countEl.textContent = String(Number(countEl.textContent || 0) + 1);
       lockGroup(scope, group, id);
       renderMyVotes(groupVotes, user);
     };
