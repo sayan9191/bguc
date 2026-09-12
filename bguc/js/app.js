@@ -144,12 +144,16 @@ function cardHtml(p, photos, votes, user, groupVotes) {
           : ""
       }
       ${p.team_display_names ? `<p class="muted">Name: ${escapeHtml(p.team_display_names)}</p>` : ""}
-      ${klass ? `<p class="muted">Class: ${escapeHtml(klass)}</p>` : ""}
-      ${p.school_name ? `<p class="muted">School: ${escapeHtml(p.school_name)}</p>` : ""}
+      ${
+        klass || p.school_name
+          ? `<p class="muted">${[klass ? `Class: ${escapeHtml(klass)}` : "", p.school_name ? `School: ${escapeHtml(p.school_name)}` : ""]
+              .filter(Boolean)
+              .join(" · ")}</p>`
+          : ""
+      }
       ${p.mentor_name ? `<p class="muted">Guidance: ${escapeHtml(p.mentor_name)}</p>` : ""}
       ${votes == null ? "" : `<p class="muted">${votes} ${t("votesCount")}</p>`}
       ${voteButtonHtml(p, user, groupVotes)}
-      <p class="vote-msg" data-msg></p>
     </div>
   </article>`;
 }
@@ -210,17 +214,16 @@ function wireCardVotes(scope, user, groupVotes) {
       const group = btn.dataset.group;
       const label = groupName(group);
       if (!(await confirmVote(name, label))) return;
-      const msg = btn.closest(".body").querySelector("[data-msg]");
       btn.disabled = true;
       const { data, error } = await supabase.rpc("submit_vote", { p_project_id: id });
       if (error || !data?.ok) {
         btn.disabled = false;
-        msg.innerHTML = `<span class="alert err">${escapeHtml(error?.message || data?.message || "Could not submit vote.")}</span>`;
+        // Nothing is added under the button; a refusal is explained in a dialog.
+        showNotice(error?.message || data?.message || "Could not submit vote.");
         return;
       }
       groupVotes[group] = { voted: true, project_id: id, project_name: name };
       lockGroup(scope, group, id);
-      msg.innerHTML = `<span class="alert ok">${escapeHtml(data.message || `Your ${label} vote has been submitted.`)}</span>`;
       renderMyVotes(groupVotes, user);
     };
   });
@@ -241,6 +244,19 @@ function lockGroup(scope, group, votedId) {
       btn.textContent = `${groupName(group)} vote already used`;
     }
   });
+}
+
+/** Refusals and failures are shown centred in a dialog, never under a button. */
+function showNotice(message) {
+  const host = document.getElementById("modal");
+  if (!host) return;
+  host.innerHTML = `<div class="modal"><div class="box">
+    <p>${escapeHtml(message)}</p>
+    <div class="actions"><button class="btn" data-ok type="button">OK</button></div>
+  </div></div>`;
+  host.querySelector("[data-ok]").onclick = () => {
+    host.innerHTML = "";
+  };
 }
 
 function confirmVote(name, label) {
@@ -394,6 +410,7 @@ async function projectPage() {
   const groupLabel = groupName(p.class_group);
   const myVote = (voteRes.data ?? {})[p.class_group];
   const voted = Boolean(myVote?.voted);
+  const votedThis = voted && myVote.project_id === p.id;
   const votedName = myVote?.project_name || "";
   app.innerHTML = `
     <p><a href="${path("index.html")}">← All projects</a></p>
@@ -405,13 +422,8 @@ async function projectPage() {
     <p>${escapeHtml(p.team_display_names || "")}</p>
     ${p.mentor_name ? `<p class="muted">Mentor: ${escapeHtml(p.mentor_name)}</p>` : ""}
     ${(members ?? []).length ? `<h3>Members</h3><ul>${members.map((m) => `<li>${escapeHtml(m.student_name)} · ${escapeHtml(m.class_name)}</li>`).join("")}</ul>` : ""}
-    <p id="msg">${
-      voted
-        ? `<span class="alert">You already used your ${groupLabel} vote${votedName ? ` for ${escapeHtml(votedName)}` : ""}.</span>`
-        : ""
-    }</p>
-    <button class="btn vote ${voted ? "voted" : ""}" id="vote" type="button" ${voted ? "disabled" : ""}>${
-      voted ? "✓ Voted" : `${t("vote")} in ${groupLabel}`
+    <button class="btn vote ${votedThis ? "voted" : ""}" id="vote" type="button" ${voted ? "disabled" : ""}>${
+      votedThis ? "✓ Voted" : voted ? `${groupLabel} vote already used` : `${t("vote")} in ${groupLabel}`
     }</button>
     <div id="modal"></div>
   `;
@@ -424,7 +436,6 @@ function groupName(group) {
 }
 
 async function startVote(id, name, user, voted, votedName, groupLabel) {
-  const msg = document.getElementById("msg");
   if (!user) {
     // replace, not assign: the sign-in hop must not become a history entry the
     // voter has to press Back through afterwards.
@@ -432,9 +443,9 @@ async function startVote(id, name, user, voted, votedName, groupLabel) {
     return;
   }
   if (voted) {
-    msg.innerHTML = `<p class="alert err">You already used your ${groupLabel} vote${
-      votedName ? ` for ${escapeHtml(votedName)}` : ""
-    }. ${t("voteRule")}</p>`;
+    showNotice(
+      `You already used your ${groupLabel} vote${votedName ? ` for ${votedName}` : ""}. ${t("voteRule")}`
+    );
     return;
   }
   if (!(await confirmVote(name, groupLabel))) return;
@@ -443,12 +454,11 @@ async function startVote(id, name, user, voted, votedName, groupLabel) {
   const { data, error } = await supabase.rpc("submit_vote", { p_project_id: id });
   if (error || !data?.ok) {
     btn.disabled = false;
-    msg.innerHTML = `<p class="alert err">${escapeHtml(error?.message || data?.message || "Could not submit vote.")}</p>`;
+    showNotice(error?.message || data?.message || "Could not submit vote.");
     return;
   }
   btn.textContent = "✓ Voted";
   btn.classList.add("voted");
-  msg.innerHTML = `<p class="alert ok">${escapeHtml(data.message || `Your ${groupLabel} vote has been submitted.`)}</p>`;
 }
 
 async function studentLogin(register) {
