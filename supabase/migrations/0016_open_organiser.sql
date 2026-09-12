@@ -9,6 +9,19 @@
 --
 -- TO PUT THE LOGIN BACK: run 0014_static_organiser.sql again, then run the
 -- DROP statements at the bottom of this file to remove the open versions.
+--
+-- ORDER MATTERS: 0015_vote_per_group.sql must be run before this file,
+-- because organiser_votes() below reads votes.class_group.
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'votes' AND column_name = 'class_group'
+  ) THEN
+    RAISE EXCEPTION 'Run 0015_vote_per_group.sql first, then run this file.';
+  END IF;
+END $$;
 
 DROP FUNCTION IF EXISTS public.organiser_projects(TEXT);
 DROP FUNCTION IF EXISTS public.organiser_students(TEXT);
