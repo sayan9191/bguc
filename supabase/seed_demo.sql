@@ -9,6 +9,16 @@
 -- it as many times as you like.
 --
 -- Photos point at picsum.photos, so no file uploads are needed.
+--
+-- After it finishes you should have:
+--   Projects   8 rows (6 approved, 1 pending, 1 rejected)
+--   Votes      24 rows from 12 voters with names and emails
+--   Totals     A01 5, A02 4, A03 3, B01 6, B02 4, B03 2
+--   Attendance 7 marked rows across both groups
+--
+-- The file must end on the final COMMIT. Do not add trailing comments: the SQL
+-- editor splits on semicolons and would send them as an empty statement,
+-- which fails with "syntax error at end of input".
 
 BEGIN;
 
@@ -238,9 +248,3 @@ SET voting_enabled = true,
     updated_at = now();
 
 COMMIT;
-
--- What you should now see:
---   Projects   8 rows (6 approved, 1 pending, 1 rejected)
---   Votes      24 rows, 12 voters with names and emails
---   Totals     A01 5, A02 4, A03 3, B01 6, B02 4, B03 2
---   Attendance 7 marked rows across both groups
