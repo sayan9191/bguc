@@ -154,6 +154,20 @@ async function leaderboardPage() {
 async function voteLoginPage() {
   const next = qs("next") || path("index.html");
   const app = document.getElementById("app");
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  // Reaching this page while signed in normally means the voter pressed Back.
+  // Offer links instead of redirecting, which would bounce them forward again.
+  if (user) {
+    app.innerHTML = `<div class="form">
+      <h1>You are signed in</h1>
+      <p class="muted">${escapeHtml(user.email || "")}</p>
+      <a class="btn" href="${escapeHtml(next)}">Continue</a>
+      <p><a href="${path("index.html")}">← All projects</a></p>
+    </div>`;
+    return;
+  }
   app.innerHTML = `<div class="form">
     <h1>Sign in with Google</h1>
     <p class="muted">${t("voteRule")}</p>
@@ -226,6 +240,7 @@ async function projectPage() {
   const voted = Boolean(myVote?.voted);
   const votedName = myVote?.project_name || "";
   app.innerHTML = `
+    <p><a href="${path("index.html")}">← All projects</a></p>
     ${photos.length ? `<div class="gallery">${photos.map((u) => `<img src="${u}" alt="" />`).join("")}</div>` : ""}
     <p class="muted">${escapeHtml(p.project_code)}</p>
     <h1>${escapeHtml(p.model_name)}</h1>
@@ -253,7 +268,9 @@ function groupName(group) {
 function startVote(id, name, user, voted, votedName, groupLabel) {
   const msg = document.getElementById("msg");
   if (!user) {
-    location.href = `${path("login.html")}?next=${encodeURIComponent(`project.html?id=${id}&vote=1`)}`;
+    // replace, not assign: the sign-in hop must not become a history entry the
+    // voter has to press Back through afterwards.
+    location.replace(`${path("login.html")}?next=${encodeURIComponent(`project.html?id=${id}&vote=1`)}`);
     return;
   }
   if (voted) {
