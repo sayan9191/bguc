@@ -26,6 +26,37 @@ export async function mediaUrl(stored) {
   return data?.signedUrl ?? null;
 }
 
+/**
+ * Signs many stored paths in one request per bucket, so a list page with a
+ * photo slider per card does not fire dozens of round trips.
+ * Returns a Map of stored path to signed URL.
+ */
+export async function mediaUrls(storedList) {
+  const out = new Map();
+  const byBucket = new Map();
+  for (const stored of new Set((storedList ?? []).filter(Boolean))) {
+    if (stored.startsWith("http")) {
+      out.set(stored, stored);
+      continue;
+    }
+    const [bucket, ...rest] = stored.split("/");
+    const path = rest.join("/");
+    if (!bucket || !path) continue;
+    if (!byBucket.has(bucket)) byBucket.set(bucket, []);
+    byBucket.get(bucket).push({ stored, path });
+  }
+  for (const [bucket, items] of byBucket) {
+    const { data } = await supabase.storage.from(bucket).createSignedUrls(
+      items.map((i) => i.path),
+      60 * 60
+    );
+    (data ?? []).forEach((entry, i) => {
+      if (entry?.signedUrl) out.set(items[i].stored, entry.signedUrl);
+    });
+  }
+  return out;
+}
+
 export function preview(text, max = 22) {
   const words = (text ?? "").trim().split(/\s+/).filter(Boolean);
   if (!words.length) return "";
