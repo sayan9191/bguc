@@ -1,5 +1,5 @@
 import { COLS, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
-import { t, escapeHtml, wordCount, classOptions } from "./i18n.js";
+import { t, escapeHtml, wordCount, classOptions, isOtherClass, normalizeClass } from "./i18n.js";
 import { supabase, mediaUrl, preview, qs } from "./db.js";
 import { mountChrome, path } from "./chrome.js";
 import { organiserToken, saveOrganiserSession, clearOrganiserSession } from "./organiser.js";
@@ -59,6 +59,7 @@ async function homePage() {
       <p>${t("voteFavourite")}</p>
       <p class="rule">${t("voteRule")}</p>
       <p class="muted">${t("groupHint")}</p>
+      <p class="muted" id="my-votes"></p>
     </section>
     <form class="search" method="get">
       ${group !== "All" ? `<input type="hidden" name="group" value="${group}" />` : ""}
@@ -79,6 +80,7 @@ async function homePage() {
   const { data: settings } = await supabase.from("exhibition_settings").select("*").eq("id", 1).maybeSingle();
   const { data: counts } = settings?.results_visible ? await supabase.rpc("public_vote_counts") : { data: [] };
   const countMap = new Map((counts ?? []).map((c) => [c.project_id, c.vote_count]));
+  await showMyVotes();
   const list = document.getElementById("list");
   if (!projects?.length) {
     list.innerHTML = `<p class="muted">No approved projects yet.</p>`;
@@ -112,6 +114,25 @@ async function homePage() {
     })
   );
   list.innerHTML = cards.join("");
+}
+
+/** Tells a signed-in voter which of their two group votes are still unused. */
+async function showMyVotes() {
+  const box = document.getElementById("my-votes");
+  if (!box) return;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return;
+  const { data } = await supabase.rpc("my_group_votes");
+  const used = data ?? {};
+  const parts = ["A", "B"].map((g) => {
+    const label = groupName(g);
+    return used[g]?.voted
+      ? `${label}: voted${used[g].project_name ? ` for ${escapeHtml(used[g].project_name)}` : ""}`
+      : `${label}: vote still available`;
+  });
+  box.innerHTML = parts.join(" · ");
 }
 
 async function leaderboardPage() {
@@ -198,9 +219,8 @@ async function projectPage() {
   const [{ data: members }, { data: media }, voteRes] = await Promise.all([
     supabase.from("project_members").select("*").eq("project_id", id),
     supabase.from("project_media").select("*").eq("project_id", id).order("sort_order"),
-    user ? supabase.rpc("my_vote") : Promise.resolve({ data: { voted: false } }),
+    user ? supabase.rpc("my_group_votes") : Promise.resolve({ data: {} }),
   ]);
-  const myVote = voteRes.data;
   const cover = await mediaUrl(p.cover_image_url);
   const gallery = [];
   for (const m of media ?? []) {
@@ -208,39 +228,52 @@ async function projectPage() {
     if (u) gallery.push(u);
   }
   const photos = [...new Set([cover, ...gallery].filter(Boolean))];
-  const voted = Boolean(myVote && myVote.voted);
+  // Each group is voted independently, so only this project's group matters.
+  const groupLabel = groupName(p.class_group);
+  const myVote = (voteRes.data ?? {})[p.class_group];
+  const voted = Boolean(myVote?.voted);
   const votedName = myVote?.project_name || "";
   app.innerHTML = `
     ${photos.length ? `<div class="gallery">${photos.map((u) => `<img src="${u}" alt="" />`).join("")}</div>` : ""}
     <p class="muted">${escapeHtml(p.project_code)}</p>
     <h1>${escapeHtml(p.model_name)}</h1>
     <p>${escapeHtml(p.description || "")}</p>
-    <p class="muted">${escapeHtml(p.school_name || "")} · Class ${escapeHtml(p.class_name || "")}</p>
+    <p class="muted">${escapeHtml(p.school_name || "")} · Class ${escapeHtml(p.class_name || "")} · ${groupLabel}</p>
     <p>${escapeHtml(p.team_display_names || "")}</p>
     ${p.mentor_name ? `<p class="muted">Mentor: ${escapeHtml(p.mentor_name)}</p>` : ""}
     ${(members ?? []).length ? `<h3>Members</h3><ul>${members.map((m) => `<li>${escapeHtml(m.student_name)} · ${escapeHtml(m.class_name)}</li>`).join("")}</ul>` : ""}
-    <p id="msg">${voted ? `<span class="alert">You already voted${votedName ? ` for ${escapeHtml(votedName)}` : ""}.</span>` : ""}</p>
-    <button class="btn" id="vote" type="button">${t("vote")}</button>
+    <p id="msg">${
+      voted
+        ? `<span class="alert">You already used your ${groupLabel} vote${votedName ? ` for ${escapeHtml(votedName)}` : ""}.</span>`
+        : ""
+    }</p>
+    <button class="btn" id="vote" type="button">${t("vote")} in ${groupLabel}</button>
     <div id="modal"></div>
   `;
-  document.getElementById("vote").onclick = () => startVote(id, p.model_name, user, voted, votedName);
+  document.getElementById("vote").onclick = () => startVote(id, p.model_name, user, voted, votedName, groupLabel);
   if (qs("vote") === "1") document.getElementById("vote").click();
 }
 
-function startVote(id, name, user, voted, votedName) {
+function groupName(group) {
+  return group === "A" ? "Group A" : "Group B";
+}
+
+function startVote(id, name, user, voted, votedName, groupLabel) {
   const msg = document.getElementById("msg");
   if (!user) {
     location.href = `${path("login.html")}?next=${encodeURIComponent(`project.html?id=${id}&vote=1`)}`;
     return;
   }
   if (voted) {
-    msg.innerHTML = `<p class="alert err">You already voted${votedName ? ` for ${escapeHtml(votedName)}` : ""}. ${t("voteRule")}</p>`;
+    msg.innerHTML = `<p class="alert err">You already used your ${groupLabel} vote${
+      votedName ? ` for ${escapeHtml(votedName)}` : ""
+    }. ${t("voteRule")}</p>`;
     return;
   }
   document.getElementById("modal").innerHTML = `<div class="modal"><div class="box">
-    <h2>Confirm vote</h2>
+    <h2>Confirm ${groupLabel} vote</h2>
     <p>You are voting for: <strong>${escapeHtml(name)}</strong></p>
-    <p class="muted">${t("voteRule")} Are you sure?</p>
+    <p class="muted">This uses your one ${groupLabel} vote and cannot be changed. Are you sure?</p>
     <div class="actions">
       <button class="btn line" id="no" type="button">Cancel</button>
       <button class="btn" id="yes" type="button">Confirm vote</button>
@@ -256,7 +289,7 @@ function startVote(id, name, user, voted, votedName) {
       msg.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
       return;
     }
-    if (data?.ok) msg.innerHTML = `<p class="alert ok">Vote submitted.</p>`;
+    if (data?.ok) msg.innerHTML = `<p class="alert ok">${escapeHtml(data.message || `Your ${groupLabel} vote has been submitted.`)}</p>`;
     else msg.innerHTML = `<p class="alert err">${escapeHtml(data?.message || "Could not submit vote.")}</p>`;
   };
 }
@@ -265,8 +298,11 @@ async function studentLogin(register) {
   const app = document.getElementById("app");
   app.innerHTML = `<form class="form" id="f">
     <h1>${register ? "Create account" : "Student sign in"}</h1>
-    <p class="muted">${register ? "Email and password (at least 6 characters)." : "Sign in with your email and password."}</p>
-    ${register ? `<label>Full name</label><input name="name" required />` : ""}
+    <p class="muted">${
+      register
+        ? "Email and password (at least 6 characters). We ask for your name on the next step."
+        : "Sign in with your email and password."
+    }</p>
     <label>Email</label><input name="email" type="email" required />
     <label>Password</label><input name="password" type="password" minlength="6" required />
     <button class="btn">${register ? "Register" : t("signIn")}</button>
@@ -279,7 +315,7 @@ async function studentLogin(register) {
     const email = String(fd.get("email"));
     const password = String(fd.get("password"));
     const { error } = register
-      ? await supabase.auth.signUp({ email, password, options: { data: { full_name: String(fd.get("name") || "") } } })
+      ? await supabase.auth.signUp({ email, password })
       : await supabase.auth.signInWithPassword({ email, password });
     if (error) document.getElementById("err").innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
     else location.href = "index.html";
@@ -310,7 +346,15 @@ async function studentDetails() {
     <h1>Your details</h1>
     ${locked ? `<p class="alert">Your project is approved. You cannot change these details.</p>` : `<p class="muted">Tell us who you are, then add your science project.</p>`}
     <label>Your name</label><input name="student_names" value="${escapeHtml(student?.student_names || "")}" required ${locked ? "disabled" : ""} />
-    <label>Class</label><select name="class_name" required ${locked ? "disabled" : ""}><option value="">Select class</option>${classOptions(student?.class_name)}</select>
+    <label>Class</label>
+    <select name="class_name" id="class-select" required ${locked ? "disabled" : ""}>
+      <option value="">Select class</option>${classOptions(student?.class_name)}
+    </select>
+    <div id="class-other-row" hidden>
+      <label for="class-other">Write your class</label>
+      <input id="class-other" name="class_other" maxlength="40" placeholder="For example: Nursery or KG"
+        value="${escapeHtml(isOtherClass(student?.class_name) ? normalizeClass(student?.class_name) : "")}" ${locked ? "disabled" : ""} />
+    </div>
     <label>School</label><input name="school_name" value="${escapeHtml(student?.school_name || "")}" required ${locked ? "disabled" : ""} />
     <label>Mentor / guidance</label><input name="mentor_name" value="${escapeHtml(student?.mentor_name || "")}" ${locked ? "disabled" : ""} />
     <label>Mobile number</label><input name="contact_number" maxlength="10" value="${escapeHtml((student?.contact_number || "").replace(/\D/g, "").slice(0, 10))}" required ${locked ? "disabled" : ""} />
@@ -319,24 +363,56 @@ async function studentDetails() {
   </form>`;
   const form = document.getElementById("d");
   if (locked) return;
+
+  const classSelect = form.querySelector("#class-select");
+  const otherRow = form.querySelector("#class-other-row");
+  const otherInput = form.querySelector("#class-other");
+  const syncOtherRow = () => {
+    const on = classSelect.value === "other";
+    otherRow.hidden = !on;
+    otherInput.required = on;
+  };
+  classSelect.addEventListener("change", syncOtherRow);
+  syncOtherRow();
+
   form.onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
-    const klass = Number(fd.get("class_name"));
-    if (klass < 1 || klass > 12) {
-      document.getElementById("err").innerHTML = `<p class="alert err">Class must be 1 to 12.</p>`;
-      return;
+    const err = document.getElementById("err");
+
+    const choice = String(fd.get("class_name") || "");
+    let className;
+    let classGroup;
+    if (choice === "other") {
+      className = String(fd.get("class_other") || "").trim();
+      if (!className) {
+        err.innerHTML = `<p class="alert err">Write your class, or pick one from the list.</p>`;
+        return;
+      }
+      // A free-text class cannot be mapped to a group, so the project form decides.
+      classGroup = "B";
+    } else {
+      const klass = Number(choice);
+      if (!Number.isInteger(klass) || klass < 1 || klass > 12) {
+        err.innerHTML = `<p class="alert err">Choose a class from 1 to 12, or choose Other.</p>`;
+        return;
+      }
+      className = String(klass);
+      classGroup = klass <= 5 ? "A" : "B";
     }
+
     const mobile = String(fd.get("contact_number")).replace(/\D/g, "");
     if (!/^[6-9]\d{9}$/.test(mobile)) {
-      document.getElementById("err").innerHTML = `<p class="alert err">Enter a valid 10-digit mobile number.</p>`;
+      err.innerHTML = `<p class="alert err">Enter a valid 10-digit mobile number.</p>`;
       return;
     }
+
+    const fullName = String(fd.get("student_names")).trim();
     const payload = {
       profile_id: user.id,
-      student_names: String(fd.get("student_names")),
-      class_name: String(klass),
-      class_group: klass <= 5 ? "A" : "B",
+      student_names: fullName,
+      class_name: className,
+      class_group: classGroup,
       school_name: String(fd.get("school_name")),
       mentor_name: String(fd.get("mentor_name") || "").trim() || null,
       contact_number: mobile,
@@ -344,8 +420,13 @@ async function studentDetails() {
     const { error } = student
       ? await supabase.from("students").update(payload).eq("id", student.id)
       : await supabase.from("students").insert(payload);
-    if (error) document.getElementById("err").innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
-    else location.href = "index.html";
+    if (error) {
+      err.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
+      return;
+    }
+    // Keep the profile name in step, since registration no longer asks for it.
+    await supabase.from("profiles").update({ full_name: fullName }).eq("id", user.id);
+    location.href = "index.html";
   };
 }
 

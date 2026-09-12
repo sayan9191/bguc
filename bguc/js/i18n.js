@@ -2,7 +2,7 @@ export const copy = {
   org: "Basirhat Ganapati Utsab Committee",
   exhibition: "Science Exhibition",
   voteFavourite: "Vote for your favourite project",
-  voteRule: "One user can give only one vote.",
+  voteRule: "One user can give one vote in each group: one in Group A and one in Group B.",
   groupHint: "Group A · up to class 5 · Group B · class 6 onwards",
   allProjects: "All projects",
   groupA: "Group A",
@@ -41,10 +41,25 @@ export function wordCount(text) {
     .filter(Boolean).length;
 }
 
+const NUMBERED_CLASSES = Array.from({ length: 12 }, (_, i) => String(i + 1));
+
+export function normalizeClass(value) {
+  return String(value ?? "")
+    .replace(/^Class\s+/i, "")
+    .trim();
+}
+
+/** True when a saved class is free text such as "Nursery" rather than 1-12. */
+export function isOtherClass(value) {
+  const cur = normalizeClass(value);
+  return cur !== "" && !NUMBERED_CLASSES.includes(cur);
+}
+
 export function classOptions(selected) {
-  const cur = String(selected ?? "").replace(/^Class\s+/i, "").trim();
-  return Array.from({ length: 12 }, (_, i) => i + 1)
-    .map((n) => `<option value="${n}" ${cur === String(n) ? "selected" : ""}>Class ${n}</option>`)
-    .join("");
+  const cur = normalizeClass(selected);
+  const numbered = NUMBERED_CLASSES.map(
+    (n) => `<option value="${n}" ${cur === n ? "selected" : ""}>Class ${n}</option>`
+  ).join("");
+  return `${numbered}<option value="other" ${isOtherClass(selected) ? "selected" : ""}>Other</option>`;
 }
 
