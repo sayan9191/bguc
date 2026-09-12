@@ -5,7 +5,13 @@ import { mountChrome, path } from "./chrome.js";
 
 const page = document.body.dataset.page;
 
-await mountChrome();
+// The header must never be able to blank the page. If it fails, the content
+// below still renders and the reason is reported.
+try {
+  await mountChrome();
+} catch (err) {
+  console.error("Header failed to load", err);
+}
 
 // Supabase strips its tokens out of the fragment after sign-in but leaves a
 // bare "#" in the address bar, which looks like a broken redirect.
