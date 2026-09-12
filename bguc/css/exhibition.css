@@ -181,3 +181,22 @@ button.more {
 .vote-msg { margin: .5rem 0 0; font-size: .88rem; }
 .vote-msg:empty { display: none; }
 
+/* Labelled detail list for the admin project screen. */
+.detail { margin: 1rem 0; display: grid; gap: 0; }
+.detail .drow {
+  display: grid; gap: .15rem;
+  padding: .7rem .2rem;
+  border-top: 1px solid rgba(216, 207, 192, .1);
+}
+@media (min-width: 640px) { .detail .drow { grid-template-columns: 12rem 1fr; gap: 1rem; align-items: baseline; } }
+.detail dt { font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; color: rgba(216, 207, 192, .65); }
+.detail dd { margin: 0; }
+
+.two-up { display: grid; gap: 1rem; align-items: start; }
+@media (min-width: 860px) { .two-up { grid-template-columns: 1fr 1fr; } }
+.two-up .form { max-width: none; margin: 0; }
+.scroll-x { overflow-x: auto; }
+.scroll-x table { min-width: 46rem; }
+select.mini { min-height: 2.4rem; border-radius: .6rem; padding: .3rem .6rem; font-size: .85rem; }
+td a { color: var(--gold-400); }
+

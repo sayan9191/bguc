@@ -33,8 +33,9 @@ try {
   if (page === "admin-home") await adminOverview();
   if (page === "admin-projects") await adminProjects();
   if (page === "admin-project") await adminProject();
-  if (page === "admin-students") await adminStudents();
+  if (page === "admin-students") adminStudents();
   if (page === "admin-votes") await adminVotes();
+  if (page === "admin-attendance") await adminAttendance();
   if (page === "admin-settings") await adminSettings();
 } catch (err) {
   const app = document.getElementById("app");
@@ -809,29 +810,79 @@ async function adminProjects() {
   });
 }
 
+function detailRow(label, value) {
+  const text = String(value ?? "").trim();
+  return `<div class="drow"><dt>${label}</dt><dd>${text ? escapeHtml(text) : "—"}</dd></div>`;
+}
+
+function phoneRow(label, value) {
+  const digits = String(value ?? "").replace(/\s/g, "");
+  if (!digits) return `<div class="drow"><dt>${label}</dt><dd>—</dd></div>`;
+  return `<div class="drow"><dt>${label}</dt><dd><a href="tel:${escapeHtml(digits)}">${escapeHtml(digits)}</a></dd></div>`;
+}
+
+function dayLabel(day) {
+  const d = new Date(`${day}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return String(day);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
 async function adminProject() {
   const id = qs("id");
-  const { data: all } = await supabase.rpc("organiser_projects");
-  const p = (all ?? []).find((x) => x.id === id);
   const app = document.getElementById("app");
+  const { data: detail, error } = await supabase.rpc("organiser_project_detail", { p_project_id: id });
+  if (error) {
+    app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  const p = detail?.project;
   if (!p) {
     app.innerHTML = `<p class="alert err">Project not found.</p>`;
     return;
   }
-  const { data: media } = await supabase.rpc("organiser_project_media", { p_project_id: id });
-  const { data: members } = await supabase.rpc("organiser_project_members", { p_project_id: id });
-  const cover = await mediaUrl(p.cover_image_url);
-  const photos = [cover];
-  for (const m of media ?? []) photos.push(await mediaUrl(m.media_url));
-  const unique = [...new Set(photos.filter(Boolean))];
-  app.innerHTML = `<a href="projects.html">← Projects</a>
-    ${unique.length ? `<div class="gallery">${unique.map((u) => `<img src="${u}" alt="" />`).join("")}</div>` : ""}
+  const student = detail.student ?? {};
+  const members = detail.members ?? [];
+  const urls = await mediaUrls([p.cover_image_url, ...(detail.media ?? []).map((m) => m.media_url)]);
+  const photos = [...new Set([...urls.values()].filter(Boolean))];
+  const memberText = members.length
+    ? members.map((m) => `${m.student_name}${m.class_name ? ` (Class ${m.class_name})` : ""}`).join(", ")
+    : p.team_display_names;
+
+  app.innerHTML = `<p><a href="projects.html">← Projects</a></p>
     <h1>${escapeHtml(p.model_name)}</h1>
-    <p class="muted">${escapeHtml(p.project_code)} · ${escapeHtml(p.approval_status)}</p>
-    <p>${escapeHtml(p.description || "")}</p>
-    <p class="muted">${escapeHtml(p.school_name)} · Class ${escapeHtml(p.class_name)}</p>
-    <p>${escapeHtml(p.team_display_names || "")}</p>
-    ${(members ?? []).length ? `<h3>Members</h3><ul>${members.map((m) => `<li>${escapeHtml(m.student_name)}</li>`).join("")}</ul>` : ""}
+    <p class="muted">${escapeHtml(p.project_code)} · ${groupName(p.class_group)} · ${escapeHtml(p.approval_status)}</p>
+    ${photos.length ? `<div class="gallery">${photos.map((u) => `<img src="${u}" alt="" />`).join("")}</div>` : ""}
+    <dl class="detail">
+      ${detailRow("Project name", p.model_name)}
+      ${detailRow("Project description", p.description)}
+      ${detailRow("Member", memberText)}
+      ${detailRow("Class", normalizeClass(p.class_name))}
+      ${detailRow("School", p.school_name)}
+      ${detailRow("Group", groupName(p.class_group))}
+      ${detailRow("Category", p.category)}
+      ${detailRow("Guidance / mentor", p.mentor_name)}
+      ${detailRow("Project code", p.project_code)}
+      ${detailRow("Approval status", p.approval_status)}
+      ${p.rejection_reason ? detailRow("Rejection reason", p.rejection_reason) : ""}
+      ${detailRow("Votes received", detail.vote_count ?? 0)}
+      ${detailRow("Registered by", student.student_names)}
+      ${phoneRow("Contact number", student.contact_number)}
+      ${phoneRow("WhatsApp", student.whatsapp_number)}
+      ${detailRow("Guardian", student.guardian_name)}
+      ${phoneRow("Guardian contact", student.guardian_contact)}
+      ${detailRow("Submitted on", p.created_at ? dayLabel(String(p.created_at).slice(0, 10)) : "")}
+    </dl>
+    ${
+      members.length
+        ? `<h3>Team members</h3>
+      <table><thead><tr><th>Name</th><th>Class</th><th>School</th></tr></thead><tbody>${members
+        .map(
+          (m) =>
+            `<tr><td>${escapeHtml(m.student_name)}</td><td>${escapeHtml(normalizeClass(m.class_name))}</td><td>${escapeHtml(m.school_name || "")}</td></tr>`
+        )
+        .join("")}</tbody></table>`
+        : ""
+    }
     <div class="actions">
       <button class="btn" id="ap" type="button">Approve</button>
       <button class="btn line" id="rj" type="button">Reject</button>
@@ -850,53 +901,207 @@ async function adminProject() {
   document.getElementById("pd").onclick = () => set("PENDING");
 }
 
-async function adminStudents() {
-  const { data: students, error } = await supabase.rpc("organiser_students");
-  const app = document.getElementById("app");
-  if (error) {
-    app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
-    return;
-  }
-  app.innerHTML = `<h1>Students</h1>
-    <table><thead><tr><th>Name</th><th>Class</th><th>School</th><th>Mobile</th></tr></thead>
-    <tbody>${(students ?? [])
-      .map(
-        (s) =>
-          `<tr><td>${escapeHtml(s.student_names)}</td><td>${escapeHtml(s.class_name)}</td><td>${escapeHtml(s.school_name)}</td><td>${escapeHtml(s.contact_number)}</td></tr>`
-      )
-      .join("")}</tbody></table>`;
+/** The Students screen was removed; keep old links working. */
+function adminStudents() {
+  location.replace("projects.html");
 }
 
 async function adminVotes() {
-  const { data: votes, error } = await supabase.rpc("organiser_votes");
   const app = document.getElementById("app");
+  const [{ data: votes, error }, { data: totals }] = await Promise.all([
+    supabase.rpc("organiser_votes"),
+    supabase.rpc("organiser_vote_totals"),
+  ]);
   if (error) {
     app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
     return;
   }
-  app.innerHTML = `<h1>Vote records</h1>
-    <p class="muted">One Google account equals one vote. Records cannot be edited here.</p>
-    <table><thead><tr><th>When</th><th>Project</th></tr></thead>
-    <tbody>${(votes ?? [])
-      .map((v) => `<tr><td>${escapeHtml(String(v.created_at || "").slice(0, 19))}</td><td>${escapeHtml(v.project_name)}</td></tr>`)
-      .join("")}</tbody></table>`;
+  const list = votes ?? [];
+  const totalsList = totals ?? [];
+  const totalsFor = (g) => totalsList.filter((r) => r.class_group === g);
+
+  const totalsTable = (g) => {
+    const rows = totalsFor(g);
+    return `<h3>${groupName(g)} · ${rows.reduce((n, r) => n + r.vote_count, 0)} votes</h3>
+      <table><thead><tr><th>#</th><th>Project</th><th>Code</th><th>Votes</th></tr></thead>
+      <tbody>${
+        rows.length
+          ? rows
+              .map(
+                (r, i) =>
+                  `<tr><td>${i + 1}</td><td>${escapeHtml(r.project_name)}</td><td>${escapeHtml(r.project_code)}</td><td>${r.vote_count}</td></tr>`
+              )
+              .join("")
+          : `<tr><td colspan="4">No approved projects in this group.</td></tr>`
+      }</tbody></table>`;
+  };
+
+  app.innerHTML = `<h1>Votes</h1>
+    <p class="muted">Each voter gets one vote in Group A and one in Group B. Records cannot be edited.</p>
+    <div class="stats">
+      <div class="stat"><span>Total votes</span><b>${list.length}</b></div>
+      <div class="stat"><span>Group A votes</span><b>${list.filter((v) => v.class_group === "A").length}</b></div>
+      <div class="stat"><span>Group B votes</span><b>${list.filter((v) => v.class_group === "B").length}</b></div>
+      <div class="stat"><span>Voters</span><b>${new Set(list.map((v) => v.voter_email)).size}</b></div>
+    </div>
+    <h2>Vote totals</h2>
+    ${totalsTable("A")}
+    ${totalsTable("B")}
+    <h2>Who voted for what</h2>
+    <table><thead><tr><th>Voter</th><th>Email</th><th>Project</th><th>Group</th><th>When</th></tr></thead>
+    <tbody>${
+      list.length
+        ? list
+            .map(
+              (v) =>
+                `<tr><td>${escapeHtml(v.voter_name || "—")}</td><td>${escapeHtml(v.voter_email || "—")}</td><td>${escapeHtml(
+                  v.project_name || "—"
+                )}</td><td>${groupName(v.class_group)}</td><td>${escapeHtml(String(v.created_at || "").slice(0, 16).replace("T", " "))}</td></tr>`
+            )
+            .join("")
+        : `<tr><td colspan="5">No votes yet.</td></tr>`
+    }</tbody></table>`;
+}
+
+async function adminAttendance() {
+  const group = (qs("group") || "A").toUpperCase() === "B" ? "B" : "A";
+  const app = document.getElementById("app");
+  const { data: rows, error } = await supabase.rpc("organiser_attendance", { p_class_group: group });
+  if (error) {
+    app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  const list = rows ?? [];
+  const byDay = new Map();
+  for (const r of list) {
+    if (!byDay.has(r.day)) byDay.set(r.day, []);
+    byDay.get(r.day).push(r);
+  }
+
+  const statusSelect = (r) =>
+    `<select class="mini" data-att data-project="${r.project_id}" data-day="${r.day}">
+      ${["EXPECTED", "PRESENT", "ABSENT"]
+        .map(
+          (s) =>
+            `<option value="${s}" ${r.status === s ? "selected" : ""}>${s === "EXPECTED" ? "Not marked" : s === "PRESENT" ? "Came" : "Did not come"}</option>`
+        )
+        .join("")}
+    </select>`;
+
+  const phone = (n) => {
+    const digits = String(n ?? "").replace(/\s/g, "");
+    return digits ? `<a href="tel:${escapeHtml(digits)}">${escapeHtml(digits)}</a>` : "—";
+  };
+
+  app.innerHTML = `<h1>Attendance</h1>
+    <p class="muted">Group A exhibits on 14 and 15 September, Group B on 17 and 18 September. Mark who came; call anyone who did not.</p>
+    <div class="chips">
+      <a class="${group === "A" ? "on" : ""}" href="attendance.html?group=A">Group A</a>
+      <a class="${group === "B" ? "on" : ""}" href="attendance.html?group=B">Group B</a>
+    </div>
+    ${
+      byDay.size
+        ? [...byDay.entries()]
+            .map(
+              ([day, dayRows]) => `<h2>${dayLabel(day)}</h2>
+      <div class="stats">
+        <div class="stat"><span>Expected</span><b>${dayRows.length}</b></div>
+        <div class="stat"><span>Came</span><b>${dayRows.filter((r) => r.status === "PRESENT").length}</b></div>
+        <div class="stat"><span>Did not come</span><b>${dayRows.filter((r) => r.status === "ABSENT").length}</b></div>
+        <div class="stat"><span>Not marked</span><b>${dayRows.filter((r) => r.status === "EXPECTED").length}</b></div>
+      </div>
+      <div class="scroll-x">
+      <table><thead><tr>
+        <th>Project</th><th>Class</th><th>School</th><th>Members</th>
+        <th>Contact</th><th>WhatsApp</th><th>Guardian</th><th>Guardian contact</th><th>Attendance</th>
+      </tr></thead>
+      <tbody>${dayRows
+        .map(
+          (r) => `<tr>
+          <td><a href="project.html?id=${r.project_id}">${escapeHtml(r.project_name)}</a><br /><span class="muted">${escapeHtml(
+            r.project_code
+          )}</span></td>
+          <td>${escapeHtml(normalizeClass(r.class_name))}</td>
+          <td>${escapeHtml(r.school_name || "")}</td>
+          <td>${escapeHtml(r.team_display_names || "")}</td>
+          <td>${phone(r.contact_number)}</td>
+          <td>${phone(r.whatsapp_number)}</td>
+          <td>${escapeHtml(r.guardian_name || "—")}</td>
+          <td>${phone(r.guardian_contact)}</td>
+          <td>${statusSelect(r)}</td>
+        </tr>`
+        )
+        .join("")}</tbody></table></div>`
+            )
+            .join("")
+        : `<p class="muted">No approved projects in ${groupName(group)} yet.</p>`
+    }
+    <p id="att-msg"></p>`;
+
+  app.querySelectorAll("[data-att]").forEach((sel) => {
+    sel.onchange = async () => {
+      const msg = document.getElementById("att-msg");
+      sel.disabled = true;
+      const { data, error: setErr } = await supabase.rpc("organiser_set_attendance", {
+        p_project_id: sel.dataset.project,
+        p_day: sel.dataset.day,
+        p_status: sel.value,
+      });
+      sel.disabled = false;
+      msg.innerHTML =
+        setErr || !data?.ok
+          ? `<span class="alert err">${escapeHtml(setErr?.message || data?.message || "Could not save.")}</span>`
+          : `<span class="alert ok">Saved.</span>`;
+    };
+  });
+}
+
+/** datetime-local needs "YYYY-MM-DDTHH:mm" in local time. */
+function toLocalInput(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 async function adminSettings() {
-  const { data: rows, error } = await supabase.rpc("organiser_settings");
-  const s = rows?.[0];
   const app = document.getElementById("app");
+  const [{ data: rows, error }, { data: groups }] = await Promise.all([
+    supabase.rpc("organiser_settings"),
+    supabase.rpc("organiser_group_voting"),
+  ]);
   if (error) {
     app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
     return;
   }
-  app.innerHTML = `<form class="form" id="s">
-    <h1>Settings</h1>
-    <label><input type="checkbox" name="voting_enabled" ${s?.voting_enabled ? "checked" : ""} /> Voting enabled</label>
-    <label><input type="checkbox" name="results_visible" ${s?.results_visible ? "checked" : ""} /> Show public results</label>
-    <button class="btn">Save</button>
-    <p id="ok"></p>
-  </form>`;
+  const s = rows?.[0];
+  const byGroup = new Map((groups ?? []).map((g) => [g.class_group, g]));
+
+  const groupForm = (g) => {
+    const row = byGroup.get(g) ?? {};
+    return `<form class="form" data-group-form="${g}">
+      <h2>${groupName(g)} voting</h2>
+      <label><input type="checkbox" name="voting_enabled" ${row.voting_enabled ? "checked" : ""} /> Voting open for ${groupName(g)}</label>
+      <label>Start date and time</label>
+      <input type="datetime-local" name="voting_start" value="${toLocalInput(row.voting_start)}" />
+      <label>End date and time</label>
+      <input type="datetime-local" name="voting_end" value="${toLocalInput(row.voting_end)}" />
+      <button class="btn">Save ${groupName(g)}</button>
+      <p data-msg></p>
+    </form>`;
+  };
+
+  app.innerHTML = `<h1>Settings</h1>
+    <form class="form" id="s">
+      <h2>Master switches</h2>
+      <label><input type="checkbox" name="voting_enabled" ${s?.voting_enabled ? "checked" : ""} /> Voting enabled (turns both groups off when unchecked)</label>
+      <label><input type="checkbox" name="results_visible" ${s?.results_visible ? "checked" : ""} /> Show public results</label>
+      <button class="btn">Save</button>
+      <p id="ok"></p>
+    </form>
+    <div class="two-up">${groupForm("A")}${groupForm("B")}</div>`;
+
   document.getElementById("s").onsubmit = async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -908,4 +1113,22 @@ async function adminSettings() {
       ? `<p class="alert ok">Saved.</p>`
       : `<p class="alert err">${escapeHtml(data?.message || "Failed")}</p>`;
   };
+
+  app.querySelectorAll("[data-group-form]").forEach((form) => {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const msg = form.querySelector("[data-msg]");
+      const { data, error: saveErr } = await supabase.rpc("organiser_save_group_voting", {
+        p_class_group: form.dataset.groupForm,
+        p_voting_enabled: fd.get("voting_enabled") === "on",
+        p_voting_start: fd.get("voting_start") ? new Date(String(fd.get("voting_start"))).toISOString() : null,
+        p_voting_end: fd.get("voting_end") ? new Date(String(fd.get("voting_end"))).toISOString() : null,
+      });
+      msg.innerHTML =
+        saveErr || !data?.ok
+          ? `<p class="alert err">${escapeHtml(saveErr?.message || data?.message || "Failed")}</p>`
+          : `<p class="alert ok">Saved.</p>`;
+    };
+  });
 }

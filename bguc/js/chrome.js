@@ -42,8 +42,8 @@ export async function mountChrome() {
     header.innerHTML = `<div class="top-inner">
       ${brand("index.html", t("admin"))}
       <nav class="nav">
-        <a href="index.html">Overview</a><a href="projects.html">Projects</a><a href="students.html">Students</a>
-        <a href="votes.html">Votes</a><a href="settings.html">Settings</a>
+        <a href="index.html">Overview</a><a href="projects.html">Projects</a>
+        <a href="votes.html">Votes</a><a href="attendance.html">Attendance</a><a href="settings.html">Settings</a>
       </nav>
     </div>`;
   } else {
