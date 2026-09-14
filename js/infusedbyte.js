@@ -7,9 +7,17 @@ const msg = document.getElementById("form-msg");
 const fine = matchMedia("(pointer: fine)").matches;
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+const lockPage = (on) => {
+  document.documentElement.classList.toggle("menu-lock", on);
+  document.body.classList.toggle("menu-lock", on);
+  document.body.style.overflow = on ? "hidden" : "";
+};
+
 const closeMenu = () => {
   nav?.classList.remove("open");
   menuBtn?.setAttribute("aria-expanded", "false");
+  menuBtn?.setAttribute("aria-label", "Open menu");
+  lockPage(false);
 };
 
 window.addEventListener(
@@ -23,9 +31,19 @@ window.addEventListener(
 menuBtn?.addEventListener("click", () => {
   const open = nav.classList.toggle("open");
   menuBtn.setAttribute("aria-expanded", String(open));
+  menuBtn.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+  lockPage(open);
 });
 
 links?.querySelectorAll("a").forEach((a) => a.addEventListener("click", closeMenu));
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMenu();
+});
+
+window.addEventListener("resize", () => {
+  if (window.innerWidth > 860) closeMenu();
+});
 
 if (stage && fine && !reduce) {
   stage.addEventListener("mousemove", (e) => {
