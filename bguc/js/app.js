@@ -66,14 +66,12 @@ async function homePage() {
             `<a class="${group === g ? "on" : ""}" href="list.html?group=${g}">${groupName(g)}</a>`
         )
         .join("")}
-      <form id="logout-page"><button class="btn line" type="submit">${t("signOut")}</button></form>
     </div>`
-        : `<div class="chips"><form id="logout-page"><button class="btn line" type="submit">${t("signOut")}</button></form></div>`
+        : ""
     }
     <div id="list"></div>
     <div id="modal"></div>
   `;
-  wirePageLogout();
 
   const list = document.getElementById("list");
   if (!openGroups.length) {
@@ -111,14 +109,6 @@ async function homePage() {
     })
     .join("");
   wireCardVotes(list, user, groupVotes);
-}
-
-function wirePageLogout() {
-  document.getElementById("logout-page")?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    await supabase.auth.signOut();
-    location.replace(path("index.html"));
-  });
 }
 
 /** Groups that are currently collecting votes. If the RPC is missing, both stay closed. */

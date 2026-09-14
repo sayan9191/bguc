@@ -58,7 +58,7 @@ export async function mountChrome() {
         ${
           user
             ? `<a href="${path("list.html")}">${t("projects")}</a>
-               <form id="logout"><button class="btn line" type="submit">${t("signOut")}</button></form>`
+               <form id="logout"><button class="btn-out" type="submit">${t("signOut")}</button></form>`
             : ""
         }
       </nav>
