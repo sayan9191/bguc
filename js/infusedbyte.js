@@ -4,7 +4,6 @@ const links = document.getElementById("links");
 const stage = document.getElementById("stage");
 const form = document.getElementById("enquiry");
 const msg = document.getElementById("form-msg");
-const cursor = document.getElementById("cursor");
 const fine = matchMedia("(pointer: fine)").matches;
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -38,18 +37,6 @@ if (stage && fine && !reduce) {
   });
 }
 
-if (stage) {
-  for (let i = 0; i < 16; i += 1) {
-    const s = document.createElement("span");
-    s.className = "spark";
-    s.style.left = `${8 + Math.random() * 84}%`;
-    s.style.top = `${10 + Math.random() * 70}%`;
-    s.style.animationDelay = `${-Math.random() * 7}s`;
-    s.style.animationDuration = `${6 + Math.random() * 5}s`;
-    stage.appendChild(s);
-  }
-}
-
 if (fine && !reduce) {
   document.querySelectorAll(".mag").forEach((btn) => {
     btn.addEventListener("mousemove", (e) => {
@@ -59,17 +46,6 @@ if (fine && !reduce) {
     btn.addEventListener("mouseleave", () => {
       btn.style.transform = "";
     });
-  });
-}
-
-if (cursor && fine && !reduce) {
-  window.addEventListener("pointermove", (e) => {
-    cursor.style.left = `${e.clientX}px`;
-    cursor.style.top = `${e.clientY}px`;
-  });
-  document.querySelectorAll("a, button, input, select, textarea").forEach((el) => {
-    el.addEventListener("mouseenter", () => cursor.classList.add("on"));
-    el.addEventListener("mouseleave", () => cursor.classList.remove("on"));
   });
 }
 
