@@ -102,7 +102,7 @@ textarea { border-radius: 1rem; min-height: 8rem; }
 .cards { display: grid; gap: 1rem; }
 @media (min-width: 720px) { .cards { grid-template-columns: repeat(2, 1fr); } }
 @media (min-width: 1020px) { .cards { grid-template-columns: repeat(3, 1fr); } }
-.cards.vote { gap: 0.55rem; grid-template-columns: repeat(2, 1fr); }
+.cards.vote { gap: 0.55rem; grid-template-columns: repeat(2, 1fr); align-items: stretch; }
 @media (min-width: 720px) { .cards.vote { grid-template-columns: repeat(3, 1fr); } }
 @media (min-width: 1020px) { .cards.vote { grid-template-columns: repeat(4, 1fr); } }
 .card { border: 1px solid rgba(216, 207, 192, 0.1); border-radius: 1.1rem; overflow: hidden; background: rgba(20, 27, 39, 0.85); }
@@ -183,10 +183,21 @@ button.more {
 .hero.compact .muted { margin: 0.2rem 0 0; }
 .group-block { margin: 0 0 1rem; }
 .group-block h2 { font-family: "Cormorant Garamond", Georgia, serif; font-size: 1.25rem; margin: 0 0 0.5rem; }
-.card.vote-card .body { padding: 0.7rem 0.75rem; gap: 0.2rem; }
+.group-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin: 1.2rem 0 0.4rem; }
+.group-head h2 { margin: 0; }
+.card.vote-card { height: 100%; }
+.card.vote-card .body {
+  padding: 0.7rem 0.75rem;
+  gap: 0.2rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 11.5rem;
+  height: 100%;
+}
 .card.vote-card h2 { font-size: 1.02rem; line-height: 1.25; }
 .card.vote-card .meta { font-size: 0.82rem; color: rgba(216, 207, 192, 0.75); }
-.card.vote-card .btn.vote { margin-top: 0.45rem; min-height: 2.35rem; }
+.card.vote-card .btn.vote { margin-top: auto; min-height: 2.35rem; }
+.btn.danger { background: #7a2430; color: #f7f4ee; }
 
 .btn.vote { width: 100%; margin-top: .7rem; background: var(--gold-400); color: #14110b; }
 .btn.vote:disabled { cursor: default; }

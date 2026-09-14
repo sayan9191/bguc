@@ -51,28 +51,42 @@ async function homePage() {
     return;
   }
 
-  const group = qs("group") || "All";
-  const q = (qs("q") || "").trim();
+  const openGroups = await votingOpenGroups();
+  const wanted = qs("group") === "B" ? "B" : qs("group") === "A" ? "A" : "";
+  const group = wanted && openGroups.includes(wanted) ? wanted : openGroups[0] || "";
+  const groups = group ? [group] : [];
+
   document.getElementById("app").innerHTML = `
-    <div class="chips">
-      <a class="${group === "All" ? "on" : ""}" href="list.html${q ? `?q=${encodeURIComponent(q)}` : ""}">${t("allProjects")}</a>
-      <a class="${group === "A" ? "on" : ""}" href="list.html?group=A${q ? `&q=${encodeURIComponent(q)}` : ""}">${t("groupA")}</a>
-      <a class="${group === "B" ? "on" : ""}" href="list.html?group=B${q ? `&q=${encodeURIComponent(q)}` : ""}">${t("groupB")}</a>
-    </div>
+    ${
+      openGroups.length
+        ? `<div class="chips">
+      ${openGroups
+        .map(
+          (g) =>
+            `<a class="${group === g ? "on" : ""}" href="list.html?group=${g}">${groupName(g)}</a>`
+        )
+        .join("")}
+    </div>`
+        : ""
+    }
     <div id="list"></div>
     <div id="modal"></div>
   `;
+
+  const list = document.getElementById("list");
+  if (!openGroups.length) {
+    list.innerHTML = `<p class="muted">Voting is off right now. Projects will appear here when organisers start voting for a group.</p>`;
+    return;
+  }
 
   let query = supabase
     .from("projects")
     .select(COLS)
     .eq("approval_status", "APPROVED")
+    .in("class_group", groups)
     .order("table_number", { ascending: true, nullsFirst: false })
     .order("model_name");
-  if (group === "A" || group === "B") query = query.eq("class_group", group);
-  if (q) query = query.or(`model_name.ilike.%${q}%,team_display_names.ilike.%${q}%`);
   const { data: projects, error } = await query;
-  const list = document.getElementById("list");
   if (error) {
     list.innerHTML = `<p class="alert err">Run supabase/migrations/0018_three_votes_and_tables.sql in Supabase. ${escapeHtml(error.message)}</p>`;
     return;
@@ -80,11 +94,10 @@ async function homePage() {
   const groupVotes = (await supabase.rpc("my_group_votes")).data ?? {};
 
   if (!projects?.length) {
-    list.innerHTML = `<p class="muted">No approved projects yet.</p>`;
+    list.innerHTML = `<p class="muted">No projects in the open group yet.</p>`;
     return;
   }
 
-  const groups = group === "All" ? ["A", "B"] : [group];
   list.innerHTML = groups
     .map((g) => {
       const rows = projects.filter((p) => p.class_group === g);
@@ -96,6 +109,18 @@ async function homePage() {
     })
     .join("");
   wireCardVotes(list, user, groupVotes);
+}
+
+/** Groups that are currently collecting votes. If the RPC is missing, both stay closed. */
+async function votingOpenGroups() {
+  const open = [];
+  let failed = 0;
+  for (const g of ["A", "B"]) {
+    const { data, error } = await supabase.rpc("group_voting_status", { p_class_group: g });
+    if (error) failed += 1;
+    else if (data === "open") open.push(g);
+  }
+  return failed === 2 ? [] : open;
 }
 
 function cardHtml(p, user, groupVotes) {
@@ -213,10 +238,19 @@ function applyVoteState(scope, groupVotes) {
   });
 }
 
+function modalHost() {
+  let host = document.getElementById("modal");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "modal";
+    document.body.appendChild(host);
+  }
+  return host;
+}
+
 /** Refusals and failures are shown centred in a dialog, never under a button. */
 function showNotice(message) {
-  const host = document.getElementById("modal");
-  if (!host) return;
+  const host = modalHost();
   host.innerHTML = `<div class="modal"><div class="box">
     <p>${escapeHtml(message)}</p>
     <div class="actions"><button class="btn" data-ok type="button">OK</button></div>
@@ -224,6 +258,26 @@ function showNotice(message) {
   host.querySelector("[data-ok]").onclick = () => {
     host.innerHTML = "";
   };
+}
+
+function confirmAction(title, message, yesLabel) {
+  return new Promise((resolve) => {
+    const host = modalHost();
+    host.innerHTML = `<div class="modal"><div class="box">
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+      <div class="actions">
+        <button class="btn line" data-no type="button">Cancel</button>
+        <button class="btn danger" data-yes type="button">${escapeHtml(yesLabel)}</button>
+      </div>
+    </div></div>`;
+    const close = (answer) => {
+      host.innerHTML = "";
+      resolve(answer);
+    };
+    host.querySelector("[data-no]").onclick = () => close(false);
+    host.querySelector("[data-yes]").onclick = () => close(true);
+  });
 }
 
 function confirmVote(name, label) {
@@ -700,30 +754,11 @@ async function studentRanking() {
 
 /** The admin module has no login, so this page only forwards to the overview. */
 function adminLogin() {
-  location.replace("index.html");
+  location.replace("projects.html");
 }
 
 async function adminOverview() {
-  const { data: projects, error } = await supabase.rpc("organiser_projects");
-  const { data: students } = await supabase.rpc("organiser_students");
-  const { data: votes } = await supabase.rpc("organiser_votes");
-  const list = projects ?? [];
-  if (error) {
-    document.getElementById("app").innerHTML = `<p class="alert err">Run supabase/migrations/0016_open_organiser.sql in Supabase so admin can load all projects. ${escapeHtml(error.message)}</p>`;
-    return;
-  }
-  document.getElementById("app").innerHTML = `<h1>Exhibition overview</h1>
-    <div class="stats">
-      <div class="stat"><span>Total students</span><b>${students?.length ?? 0}</b></div>
-      <div class="stat"><span>Total projects</span><b>${list.length}</b></div>
-      <div class="stat"><span>Approved</span><b>${list.filter((p) => p.approval_status === "APPROVED").length}</b></div>
-      <div class="stat"><span>Pending</span><b>${list.filter((p) => p.approval_status === "PENDING").length}</b></div>
-      <div class="stat"><span>Rejected</span><b>${list.filter((p) => p.approval_status === "REJECTED").length}</b></div>
-      <div class="stat"><span>Total votes</span><b>${votes?.length ?? 0}</b></div>
-    </div>
-    <div class="actions">
-      <a class="btn" href="projects.html">Open projects</a>
-    </div>`;
+  location.replace("projects.html");
 }
 
 function tableOptions(selected) {
@@ -738,12 +773,11 @@ function listingForm(p) {
   const editing = Boolean(p?.id);
   return `<form class="form wide" id="listing-form">
     <h2>${editing ? "Edit project" : "Add project"}</h2>
-    <p class="muted">These titles, student names and table numbers appear group-wise on the voting page.</p>
     <input type="hidden" name="id" value="${editing ? escapeHtml(p.id) : ""}" />
     <label>Project title</label>
-    <input name="model_name" required maxlength="120" value="${escapeHtml(p?.model_name || "")}" />
+    <input name="model_name" required maxlength="200" value="${escapeHtml(p?.model_name || "")}" />
     <label>Students name</label>
-    <input name="student_names" required maxlength="200" value="${escapeHtml(p?.team_display_names || "")}" placeholder="One name, or several separated by commas" />
+    <input name="student_names" required maxlength="240" value="${escapeHtml(p?.team_display_names || "")}" placeholder="One name, or several separated by commas" />
     <div class="row2">
       <div>
         <label>Group</label>
@@ -769,7 +803,10 @@ function adminProjectTable(list, group) {
   const rows = list
     .filter((p) => p.class_group === group)
     .sort((a, b) => (a.table_number ?? 99) - (b.table_number ?? 99) || String(a.model_name).localeCompare(String(b.model_name)));
-  return `<h2>${groupName(group)}</h2>
+  return `<div class="group-head">
+      <h2>${groupName(group)}</h2>
+      <button class="btn" type="button" data-add="${group}">Add</button>
+    </div>
     <div class="scroll-x"><table><thead><tr><th>Table</th><th>Project title</th><th>Students name</th><th></th></tr></thead>
     <tbody>${
       rows.length
@@ -779,7 +816,10 @@ function adminProjectTable(list, group) {
           <td>${p.table_number ?? "—"}</td>
           <td>${escapeHtml(p.model_name)}</td>
           <td>${escapeHtml(p.team_display_names || "—")}</td>
-          <td><button class="btn line" type="button" data-edit="${p.id}">Edit</button></td>
+          <td class="actions" style="margin:0">
+            <button class="btn line" type="button" data-edit="${p.id}">Edit</button>
+            <button class="btn danger" type="button" data-del="${p.id}" data-name="${escapeHtml(p.model_name)}">Delete</button>
+          </td>
         </tr>`
             )
             .join("")
@@ -799,7 +839,8 @@ async function adminProjects() {
     app.innerHTML = `<h1>Projects</h1>
       ${listingForm(editing)}
       ${adminProjectTable(list, "A")}
-      ${adminProjectTable(list, "B")}`;
+      ${adminProjectTable(list, "B")}
+      <div id="modal"></div>`;
     const form = document.getElementById("listing-form");
     form.onsubmit = async (e) => {
       e.preventDefault();
@@ -823,11 +864,28 @@ async function adminProjects() {
       location.reload();
     };
     document.getElementById("listing-cancel")?.addEventListener("click", () => render(null));
+    app.querySelectorAll("[data-add]").forEach((btn) => {
+      btn.onclick = () => {
+        render({ class_group: btn.dataset.add });
+        app.querySelector("#listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+    });
     app.querySelectorAll("[data-edit]").forEach((btn) => {
       btn.onclick = () => {
         const row = list.find((p) => p.id === btn.dataset.edit);
         render(row);
         app.querySelector("#listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+    });
+    app.querySelectorAll("[data-del]").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!(await confirmAction("Delete project", `Delete “${btn.dataset.name}”? This cannot be undone.`, "Delete"))) return;
+        const { data, error: delErr } = await supabase.rpc("organiser_delete_listing", { p_project_id: btn.dataset.del });
+        if (delErr || !data?.ok) {
+          showNotice(delErr?.message || data?.message || "Could not delete. Run supabase/migrations/0019_delete_listing.sql.");
+          return;
+        }
+        location.reload();
       };
     });
   };
@@ -961,8 +1019,8 @@ async function adminVotes() {
       }</tbody></table>`;
   };
 
-  app.innerHTML = `<h1>Votes</h1>
-    <p class="muted">Each voter gets 3 votes in Group A and 3 votes in Group B. Records cannot be edited.</p>
+  app.innerHTML = `<h1>Leaderboard</h1>
+    <p class="muted">How many votes each project has, and who gave them. Each person gets 3 votes in Group A and 3 in Group B.</p>
     <div class="stats">
       <div class="stat"><span>Total votes</span><b>${list.length}</b></div>
       <div class="stat"><span>Group A votes</span><b>${list.filter((v) => v.class_group === "A").length}</b></div>
@@ -1117,36 +1175,25 @@ async function adminSettings() {
     </form>`;
   };
 
-  app.innerHTML = `<h1>Settings</h1>
-    <form class="form" id="s">
-      <h2>Master switches</h2>
-      <label><input type="checkbox" name="voting_enabled" ${s?.voting_enabled ? "checked" : ""} /> Voting enabled (turns both groups off when unchecked)</label>
-      <label><input type="checkbox" name="results_visible" ${s?.results_visible ? "checked" : ""} /> Show public results</label>
-      <button class="btn">Save</button>
-      <p id="ok"></p>
-    </form>
+  app.innerHTML = `<h1>Voting</h1>
+    <p class="muted">Turn a group on only when you want its project list to appear on the voting site and to collect votes. When a group is off, those projects stay hidden and no votes are taken.</p>
     <div class="two-up">${groupForm("A")}${groupForm("B")}</div>`;
-
-  document.getElementById("s").onsubmit = async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const { data } = await supabase.rpc("organiser_save_settings", {
-      p_voting_enabled: fd.get("voting_enabled") === "on",
-      p_results_visible: fd.get("results_visible") === "on",
-    });
-    document.getElementById("ok").innerHTML = data?.ok
-      ? `<p class="alert ok">Saved.</p>`
-      : `<p class="alert err">${escapeHtml(data?.message || "Failed")}</p>`;
-  };
 
   app.querySelectorAll("[data-group-form]").forEach((form) => {
     form.onsubmit = async (e) => {
       e.preventDefault();
       const fd = new FormData(form);
       const msg = form.querySelector("[data-msg]");
+      const enabled = fd.get("voting_enabled") === "on";
+      if (enabled) {
+        await supabase.rpc("organiser_save_settings", {
+          p_voting_enabled: true,
+          p_results_visible: s?.results_visible ?? false,
+        });
+      }
       const { data, error: saveErr } = await supabase.rpc("organiser_save_group_voting", {
         p_class_group: form.dataset.groupForm,
-        p_voting_enabled: fd.get("voting_enabled") === "on",
+        p_voting_enabled: enabled,
         p_voting_start: fd.get("voting_start") ? new Date(String(fd.get("voting_start"))).toISOString() : null,
         p_voting_end: fd.get("voting_end") ? new Date(String(fd.get("voting_end"))).toISOString() : null,
       });

@@ -40,10 +40,11 @@ export async function mountChrome() {
     </div>`;
   } else if (mod === "admin") {
     header.innerHTML = `<div class="top-inner">
-      ${brand("index.html", t("admin"))}
+      ${brand("projects.html", t("admin"))}
       <nav class="nav">
-        <a href="index.html">Overview</a><a href="projects.html">Projects</a>
-        <a href="votes.html">Votes</a><a href="attendance.html">Attendance</a><a href="settings.html">Settings</a>
+        <a href="projects.html">Projects</a>
+        <a href="votes.html">Leaderboard</a>
+        <a href="settings.html">Voting</a>
       </nav>
     </div>`;
   } else {
@@ -54,7 +55,7 @@ export async function mountChrome() {
     header.innerHTML = `<div class="top-inner">
       ${brand(user ? path("list.html") : path("index.html"), t("exhibition"))}
       <nav class="nav">
-        ${user ? `<a href="${path("list.html")}">${t("projects")}</a><a href="${path("leaderboard.html")}">${t("leaderboard")}</a><form id="logout"><button type="submit">${t("signOut")}</button></form>` : ""}
+        ${user ? `<a href="${path("list.html")}">${t("projects")}</a><form id="logout"><button type="submit">${t("signOut")}</button></form>` : ""}
       </nav>
     </div>`;
   }
