@@ -55,7 +55,12 @@ export async function mountChrome() {
     header.innerHTML = `<div class="top-inner">
       ${brand(user ? path("list.html") : path("index.html"), t("exhibition"))}
       <nav class="nav">
-        ${user ? `<a href="${path("list.html")}">${t("projects")}</a><form id="logout"><button type="submit">${t("signOut")}</button></form>` : ""}
+        ${
+          user
+            ? `<a href="${path("list.html")}">${t("projects")}</a>
+               <form id="logout"><button class="btn line" type="submit">${t("signOut")}</button></form>`
+            : ""
+        }
       </nav>
     </div>`;
   }
