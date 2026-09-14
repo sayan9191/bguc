@@ -52,15 +52,9 @@ export async function mountChrome() {
     } = await supabase.auth.getUser();
     if (user) await supabase.rpc("ensure_voter").catch(() => {});
     header.innerHTML = `<div class="top-inner">
-      ${brand(path("index.html"), t("exhibition"))}
+      ${brand(user ? path("list.html") : path("index.html"), t("exhibition"))}
       <nav class="nav">
-        <a href="${path("index.html")}">${t("projects")}</a>
-        <a href="${path("leaderboard.html")}">${t("leaderboard")}</a>
-        ${
-          user
-            ? `<form id="logout"><button type="submit">${t("signOut")}</button></form>`
-            : `<a href="${path("login.html")}">${t("signIn")}</a>`
-        }
+        ${user ? `<a href="${path("list.html")}">${t("projects")}</a><a href="${path("leaderboard.html")}">${t("leaderboard")}</a><form id="logout"><button type="submit">${t("signOut")}</button></form>` : ""}
       </nav>
     </div>`;
   }
@@ -70,7 +64,7 @@ export async function mountChrome() {
     logout.addEventListener("submit", async (e) => {
       e.preventDefault();
       await supabase.auth.signOut();
-      location.href = mod === "student" ? "login.html" : path("index.html");
+      location.href = mod === "student" ? "login.html" : mod === "admin" ? "index.html" : path("index.html");
     });
   }
 }

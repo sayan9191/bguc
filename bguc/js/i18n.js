@@ -2,7 +2,7 @@ export const copy = {
   org: "Basirhat Ganapati Utsab Committee",
   exhibition: "Science Exhibition",
   voteFavourite: "Vote for your favourite project",
-  voteRule: "One user can give one vote in each group: one in Group A and one in Group B.",
+  voteRule: "Each person can give 3 votes in Group A and 3 votes in Group B.",
   groupHint: "Group A · up to class 5 · Group B · class 6 onwards",
   allProjects: "All projects",
   groupA: "Group A",

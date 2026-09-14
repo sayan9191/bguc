@@ -9,4 +9,4 @@ export const SUPABASE_ANON_KEY =
 // none in Supabase either. See supabase/migrations/0016_open_organiser.sql.
 
 export const COLS =
-  "id, project_code, model_name, description, category, class_group, cover_image_url, video_url, school_name, class_name, team_display_names, mentor_name, approval_status";
+  "id, project_code, model_name, description, category, class_group, cover_image_url, video_url, school_name, class_name, team_display_names, mentor_name, approval_status, table_number";

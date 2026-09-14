@@ -43,131 +43,92 @@ try {
 }
 
 async function homePage() {
-  const group = qs("group") || "All";
-  const q = (qs("q") || "").trim();
-  document.getElementById("app").innerHTML = `
-    <section class="hero">
-      <p class="k">${t("org")}</p>
-      <h1>${t("exhibition")}</h1>
-      <p>${t("voteFavourite")}</p>
-      <p class="rule">${t("voteRule")}</p>
-      <p class="muted">${t("groupHint")}</p>
-    </section>
-    <form class="search" method="get">
-      ${group !== "All" ? `<input type="hidden" name="group" value="${group}" />` : ""}
-      <input name="q" value="${escapeHtml(q)}" placeholder="${t("searchPlaceholder")}" />
-      <button class="btn" type="submit">${t("search")}</button>
-    </form>
-    <div class="chips">
-      <a class="${group === "All" ? "on" : ""}" href="index.html${q ? `?q=${encodeURIComponent(q)}` : ""}">${t("allProjects")}</a>
-      <a class="${group === "A" ? "on" : ""}" href="index.html?group=A${q ? `&q=${encodeURIComponent(q)}` : ""}">${t("groupA")}</a>
-      <a class="${group === "B" ? "on" : ""}" href="index.html?group=B${q ? `&q=${encodeURIComponent(q)}` : ""}">${t("groupB")}</a>
-    </div>
-    <div id="list" class="cards"></div>
-    <div id="modal"></div>
-  `;
-  let query = supabase.from("projects").select(COLS).eq("approval_status", "APPROVED").order("model_name");
-  if (group === "A" || group === "B") query = query.eq("class_group", group);
-  if (q) query = query.or(`model_name.ilike.%${q}%,school_name.ilike.%${q}%,team_display_names.ilike.%${q}%`);
-  const { data: projects } = await query;
-  const { data: settings } = await supabase.from("exhibition_settings").select("*").eq("id", 1).maybeSingle();
-  const { data: counts } = settings?.results_visible ? await supabase.rpc("public_vote_counts") : { data: [] };
-  const countMap = new Map((counts ?? []).map((c) => [c.project_id, c.vote_count]));
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const groupVotes = user ? (await supabase.rpc("my_group_votes")).data ?? {} : {};
+  if (!user) {
+    location.replace(path("index.html"));
+    return;
+  }
 
+  const group = qs("group") || "All";
+  const q = (qs("q") || "").trim();
+  document.getElementById("app").innerHTML = `
+    <div class="chips">
+      <a class="${group === "All" ? "on" : ""}" href="list.html${q ? `?q=${encodeURIComponent(q)}` : ""}">${t("allProjects")}</a>
+      <a class="${group === "A" ? "on" : ""}" href="list.html?group=A${q ? `&q=${encodeURIComponent(q)}` : ""}">${t("groupA")}</a>
+      <a class="${group === "B" ? "on" : ""}" href="list.html?group=B${q ? `&q=${encodeURIComponent(q)}` : ""}">${t("groupB")}</a>
+    </div>
+    <div id="list"></div>
+    <div id="modal"></div>
+  `;
+
+  let query = supabase
+    .from("projects")
+    .select(COLS)
+    .eq("approval_status", "APPROVED")
+    .order("table_number", { ascending: true, nullsFirst: false })
+    .order("model_name");
+  if (group === "A" || group === "B") query = query.eq("class_group", group);
+  if (q) query = query.or(`model_name.ilike.%${q}%,team_display_names.ilike.%${q}%`);
+  const { data: projects, error } = await query;
   const list = document.getElementById("list");
+  if (error) {
+    list.innerHTML = `<p class="alert err">Run supabase/migrations/0018_three_votes_and_tables.sql in Supabase. ${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  const groupVotes = (await supabase.rpc("my_group_votes")).data ?? {};
+
   if (!projects?.length) {
     list.innerHTML = `<p class="muted">No approved projects yet.</p>`;
     return;
   }
 
-  // Every photo of every card is signed in one batch, then each card gets its
-  // cover first followed by its gallery shots.
-  const { data: mediaRows } = await supabase
-    .from("project_media")
-    .select("project_id, media_url, sort_order")
-    .in("project_id", projects.map((p) => p.id))
-    .order("sort_order");
-  const urls = await mediaUrls([
-    ...projects.map((p) => p.cover_image_url),
-    ...(mediaRows ?? []).map((m) => m.media_url),
-  ]);
-  const photosFor = (p) => [
-    ...new Set(
-      [
-        urls.get(p.cover_image_url),
-        ...(mediaRows ?? []).filter((m) => m.project_id === p.id).map((m) => urls.get(m.media_url)),
-      ].filter(Boolean)
-    ),
-  ];
-
-  list.innerHTML = projects
-    .map((p) => cardHtml(p, photosFor(p), settings?.results_visible ? countMap.get(p.id) ?? 0 : null, user, groupVotes))
+  const groups = group === "All" ? ["A", "B"] : [group];
+  list.innerHTML = groups
+    .map((g) => {
+      const rows = projects.filter((p) => p.class_group === g);
+      if (!rows.length) return "";
+      return `<section class="group-block">
+        <h2>${groupName(g)}</h2>
+        <div class="cards vote">${rows.map((p) => cardHtml(p, user, groupVotes)).join("")}</div>
+      </section>`;
+    })
     .join("");
-  startSliders(list);
-  wireDescriptions(list);
   wireCardVotes(list, user, groupVotes);
 }
 
-function cardHtml(p, photos, votes, user, groupVotes) {
-  const g = p.class_group === "A" ? t("groupA") : p.class_group === "B" ? t("groupB") : "";
-  const klass = normalizeClass(p.class_name);
-  const full = String(p.description || "");
-  // Short enough to keep every card the same tidy height; the rest is behind
-  // "View more", which expands in place rather than opening the project page.
-  const short = preview(full, 14);
-  const truncated = short !== full;
-  return `<article class="card" data-card="${p.id}" data-group="${p.class_group}">
-    <div class="slider" data-slider>
-      ${
-        photos.length
-          ? photos.map((u, i) => `<img src="${u}" alt="" class="${i === 0 ? "on" : ""}" />`).join("")
-          : `<span class="muted no-photo">${t("noImage")}</span>`
-      }
-    </div>
+function cardHtml(p, user, groupVotes) {
+  return `<article class="card vote-card" data-card="${p.id}" data-group="${p.class_group}">
     <div class="body">
-      <div class="card-head">
-        <h2><a href="project.html?id=${p.id}">${escapeHtml(p.model_name)}</a></h2>
-        ${g ? `<span class="badge">${g}</span>` : ""}
-      </div>
-      ${
-        full
-          ? `<p class="desc">
-        <span data-short>${escapeHtml(short)}</span><span data-full hidden>${escapeHtml(full)}</span>
-        ${truncated ? `<button type="button" class="more" data-more>${t("viewMore")}</button>` : ""}
-      </p>`
-          : ""
-      }
-      ${p.team_display_names ? `<p class="muted">Name: ${escapeHtml(p.team_display_names)}</p>` : ""}
-      ${
-        klass || p.school_name
-          ? `<p class="muted">${[klass ? `Class: ${escapeHtml(klass)}` : "", p.school_name ? `School: ${escapeHtml(p.school_name)}` : ""]
-              .filter(Boolean)
-              .join(" · ")}</p>`
-          : ""
-      }
-      ${p.mentor_name ? `<p class="muted">Guidance: ${escapeHtml(p.mentor_name)}</p>` : ""}
-      ${votes == null ? "" : `<p class="muted"><span data-votes>${votes}</span> ${t("votesCount")}</p>`}
+      <h2>${escapeHtml(p.model_name)}</h2>
+      <p class="meta">Students name: ${escapeHtml(p.team_display_names || "—")}</p>
+      <p class="meta">Table number: ${p.table_number ? escapeHtml(String(p.table_number)) : "—"}</p>
       ${voteButtonHtml(p, user, groupVotes)}
     </div>
   </article>`;
 }
 
+function groupVoteState(groupVotes, group) {
+  const raw = groupVotes?.[group] || {};
+  if (Array.isArray(raw.project_ids)) {
+    return { used: Number(raw.used ?? raw.project_ids.length), limit: Number(raw.limit ?? 3), ids: raw.project_ids.map(String) };
+  }
+  if (raw.voted) {
+    return { used: 1, limit: 3, ids: raw.project_id ? [String(raw.project_id)] : [] };
+  }
+  return { used: 0, limit: 3, ids: [] };
+}
+
 function voteButtonHtml(p, user, groupVotes) {
-  const label = groupName(p.class_group);
-  const mine = groupVotes[p.class_group];
-  if (mine?.voted && mine.project_id === p.id) {
+  const state = groupVoteState(groupVotes, p.class_group);
+  if (state.ids.includes(String(p.id))) {
     return `<button class="btn vote voted" type="button" disabled>✓ Voted</button>`;
   }
-  if (mine?.voted) {
-    return `<button class="btn vote" type="button" disabled>${label} vote already used</button>`;
+  if (state.used >= state.limit) {
+    return `<button class="btn vote" type="button" disabled>3 votes used</button>`;
   }
-  return `<button class="btn vote" type="button" data-vote="${p.id}" data-name="${escapeHtml(p.model_name)}" data-group="${p.class_group}">${
-    user ? `${t("vote")} in ${label}` : `Sign in to vote`
-  }</button>`;
+  return `<button class="btn vote" type="button" data-vote="${p.id}" data-name="${escapeHtml(p.model_name)}" data-group="${p.class_group}">${t("vote")}</button>`;
 }
 
 /** One timer drives every card, so all sliders advance together every 3s. */
@@ -204,7 +165,7 @@ function wireCardVotes(scope, user, groupVotes) {
   scope.querySelectorAll("[data-vote]").forEach((btn) => {
     btn.onclick = async () => {
       if (!user) {
-        location.replace(`${path("login.html")}?next=${encodeURIComponent("index.html")}`);
+        location.replace(path("index.html"));
         return;
       }
       const id = btn.dataset.vote;
@@ -220,28 +181,34 @@ function wireCardVotes(scope, user, groupVotes) {
         showNotice(error?.message || data?.message || "Could not submit vote.");
         return;
       }
-      groupVotes[group] = { voted: true, project_id: id, project_name: name };
-      // Reflect the new total straight away rather than waiting for a reload.
-      const countEl = btn.closest(".body").querySelector("[data-votes]");
-      if (countEl) countEl.textContent = String(Number(countEl.textContent || 0) + 1);
-      lockGroup(scope, group, id);
+      const state = groupVoteState(groupVotes, group);
+      state.ids.push(String(id));
+      state.used += 1;
+      groupVotes[group] = { used: state.used, limit: state.limit, project_ids: state.ids };
+      applyVoteState(scope, groupVotes);
     };
   });
 }
 
-/** After a vote lands, no card in that group can be voted on again. */
-function lockGroup(scope, group, votedId) {
-  scope.querySelectorAll(`.card[data-group="${group}"]`).forEach((card) => {
+/** Marks voted cards and locks a group only after its 3 votes are used. */
+function applyVoteState(scope, groupVotes) {
+  scope.querySelectorAll(".card[data-card]").forEach((card) => {
     const btn = card.querySelector("button.vote");
     if (!btn) return;
-    btn.disabled = true;
-    btn.removeAttribute("data-vote");
-    btn.onclick = null;
-    if (card.dataset.card === votedId) {
+    const state = groupVoteState(groupVotes, card.dataset.group);
+    const votedThis = state.ids.includes(String(card.dataset.card));
+    if (votedThis) {
+      btn.disabled = true;
       btn.textContent = "✓ Voted";
       btn.classList.add("voted");
-    } else {
-      btn.textContent = `${groupName(group)} vote already used`;
+      btn.removeAttribute("data-vote");
+      btn.onclick = null;
+    } else if (state.used >= state.limit) {
+      btn.disabled = true;
+      btn.textContent = "3 votes used";
+      btn.classList.remove("voted");
+      btn.removeAttribute("data-vote");
+      btn.onclick = null;
     }
   });
 }
@@ -265,7 +232,7 @@ function confirmVote(name, label) {
     host.innerHTML = `<div class="modal"><div class="box">
       <h2>Confirm ${label} vote</h2>
       <p>You are voting for: <strong>${escapeHtml(name)}</strong></p>
-      <p class="muted">This uses your one ${label} vote and cannot be changed afterwards.</p>
+      <p class="muted">This uses 1 of your 3 ${label} votes and cannot be changed afterwards.</p>
       <div class="actions">
         <button class="btn line" data-no type="button">Cancel</button>
         <button class="btn" data-yes type="button">Confirm vote</button>
@@ -305,20 +272,13 @@ async function leaderboardPage() {
 }
 
 async function voteLoginPage() {
-  const next = qs("next") || path("index.html");
+  const next = qs("next") || path("list.html");
   const app = document.getElementById("app");
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Reaching this page while signed in normally means the voter pressed Back.
-  // Offer links instead of redirecting, which would bounce them forward again.
   if (user) {
-    app.innerHTML = `<div class="form">
-      <h1>You are signed in</h1>
-      <p class="muted">${escapeHtml(user.email || "")}</p>
-      <a class="btn" href="${escapeHtml(next)}">Continue</a>
-      <p><a href="${path("index.html")}">← All projects</a></p>
-    </div>`;
+    location.replace(next);
     return;
   }
   app.innerHTML = `<div class="form">
@@ -361,6 +321,13 @@ async function googleEnabled() {
 }
 
 async function projectPage() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    location.replace(path("index.html"));
+    return;
+  }
   const id = qs("id");
   const app = document.getElementById("app");
   if (!id) {
@@ -372,13 +339,10 @@ async function projectPage() {
     app.innerHTML = `<p class="alert err">Project not found.</p>`;
     return;
   }
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
   const [{ data: members }, { data: media }, voteRes] = await Promise.all([
     supabase.from("project_members").select("*").eq("project_id", id),
     supabase.from("project_media").select("*").eq("project_id", id).order("sort_order"),
-    user ? supabase.rpc("my_group_votes") : Promise.resolve({ data: {} }),
+    supabase.rpc("my_group_votes"),
   ]);
   const cover = await mediaUrl(p.cover_image_url);
   const gallery = [];
@@ -387,28 +351,25 @@ async function projectPage() {
     if (u) gallery.push(u);
   }
   const photos = [...new Set([cover, ...gallery].filter(Boolean))];
-  // Each group is voted independently, so only this project's group matters.
   const groupLabel = groupName(p.class_group);
-  const myVote = (voteRes.data ?? {})[p.class_group];
-  const voted = Boolean(myVote?.voted);
-  const votedThis = voted && myVote.project_id === p.id;
-  const votedName = myVote?.project_name || "";
+  const state = groupVoteState(voteRes.data ?? {}, p.class_group);
+  const votedThis = state.ids.includes(String(id));
+  const usedUp = state.used >= state.limit;
   app.innerHTML = `
-    <p><a href="${path("index.html")}">← All projects</a></p>
+    <p><a href="${path("list.html")}">← All projects</a></p>
     ${photos.length ? `<div class="gallery">${photos.map((u) => `<img src="${u}" alt="" />`).join("")}</div>` : ""}
-    <p class="muted">${escapeHtml(p.project_code)}</p>
+    <p class="muted">${escapeHtml(p.project_code)}${p.table_number ? ` · Table ${escapeHtml(String(p.table_number))}` : ""}</p>
     <h1>${escapeHtml(p.model_name)}</h1>
     <p>${escapeHtml(p.description || "")}</p>
-    <p class="muted">${escapeHtml(p.school_name || "")} · Class ${escapeHtml(p.class_name || "")} · ${groupLabel}</p>
-    <p>${escapeHtml(p.team_display_names || "")}</p>
+    <p class="muted">Students name: ${escapeHtml(p.team_display_names || "—")} · ${groupLabel}</p>
     ${p.mentor_name ? `<p class="muted">Mentor: ${escapeHtml(p.mentor_name)}</p>` : ""}
     ${(members ?? []).length ? `<h3>Members</h3><ul>${members.map((m) => `<li>${escapeHtml(m.student_name)} · ${escapeHtml(m.class_name)}</li>`).join("")}</ul>` : ""}
-    <button class="btn vote ${votedThis ? "voted" : ""}" id="vote" type="button" ${voted ? "disabled" : ""}>${
-      votedThis ? "✓ Voted" : voted ? `${groupLabel} vote already used` : `${t("vote")} in ${groupLabel}`
+    <button class="btn vote ${votedThis ? "voted" : ""}" id="vote" type="button" ${votedThis || usedUp ? "disabled" : ""}>${
+      votedThis ? "✓ Voted" : usedUp ? "3 votes used" : t("vote")
     }</button>
     <div id="modal"></div>
   `;
-  document.getElementById("vote").onclick = () => startVote(id, p.model_name, user, voted, votedName, groupLabel);
+  document.getElementById("vote").onclick = () => startVote(id, p.model_name, user, votedThis, usedUp, groupLabel);
   if (qs("vote") === "1") document.getElementById("vote").click();
 }
 
@@ -416,17 +377,17 @@ function groupName(group) {
   return group === "A" ? "Group A" : "Group B";
 }
 
-async function startVote(id, name, user, voted, votedName, groupLabel) {
+async function startVote(id, name, user, votedThis, usedUp, groupLabel) {
   if (!user) {
-    // replace, not assign: the sign-in hop must not become a history entry the
-    // voter has to press Back through afterwards.
-    location.replace(`${path("login.html")}?next=${encodeURIComponent(`project.html?id=${id}&vote=1`)}`);
+    location.replace(path("index.html"));
     return;
   }
-  if (voted) {
-    showNotice(
-      `You already used your ${groupLabel} vote${votedName ? ` for ${votedName}` : ""}. ${t("voteRule")}`
-    );
+  if (votedThis) {
+    showNotice("You have already voted for this project.");
+    return;
+  }
+  if (usedUp) {
+    showNotice(`You have already used all 3 of your ${groupLabel} votes.`);
     return;
   }
   if (!(await confirmVote(name, groupLabel))) return;
@@ -765,40 +726,112 @@ async function adminOverview() {
     </div>`;
 }
 
+function tableOptions(selected) {
+  const cur = selected == null || selected === "" ? "" : String(selected);
+  const nums = Array.from({ length: 25 }, (_, i) => String(i + 1))
+    .map((n) => `<option value="${n}" ${cur === n ? "selected" : ""}>${n}</option>`)
+    .join("");
+  return `<option value="">Select table</option>${nums}`;
+}
+
+function listingForm(p) {
+  const editing = Boolean(p?.id);
+  return `<form class="form wide" id="listing-form">
+    <h2>${editing ? "Edit project" : "Add project"}</h2>
+    <p class="muted">These titles, student names and table numbers appear group-wise on the voting page.</p>
+    <input type="hidden" name="id" value="${editing ? escapeHtml(p.id) : ""}" />
+    <label>Project title</label>
+    <input name="model_name" required maxlength="120" value="${escapeHtml(p?.model_name || "")}" />
+    <label>Students name</label>
+    <input name="student_names" required maxlength="200" value="${escapeHtml(p?.team_display_names || "")}" placeholder="One name, or several separated by commas" />
+    <div class="row2">
+      <div>
+        <label>Group</label>
+        <select name="class_group" required>
+          <option value="A" ${p?.class_group === "B" ? "" : "selected"}>Group A</option>
+          <option value="B" ${p?.class_group === "B" ? "selected" : ""}>Group B</option>
+        </select>
+      </div>
+      <div>
+        <label>Table number</label>
+        <select name="table_number">${tableOptions(p?.table_number)}</select>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" type="submit">${editing ? "Save changes" : "Add project"}</button>
+      ${editing ? `<button class="btn line" id="listing-cancel" type="button">Cancel</button>` : ""}
+    </div>
+    <p id="listing-err"></p>
+  </form>`;
+}
+
+function adminProjectTable(list, group) {
+  const rows = list
+    .filter((p) => p.class_group === group)
+    .sort((a, b) => (a.table_number ?? 99) - (b.table_number ?? 99) || String(a.model_name).localeCompare(String(b.model_name)));
+  return `<h2>${groupName(group)}</h2>
+    <div class="scroll-x"><table><thead><tr><th>Table</th><th>Project title</th><th>Students name</th><th></th></tr></thead>
+    <tbody>${
+      rows.length
+        ? rows
+            .map(
+              (p) => `<tr>
+          <td>${p.table_number ?? "—"}</td>
+          <td>${escapeHtml(p.model_name)}</td>
+          <td>${escapeHtml(p.team_display_names || "—")}</td>
+          <td><button class="btn line" type="button" data-edit="${p.id}">Edit</button></td>
+        </tr>`
+            )
+            .join("")
+        : `<tr><td colspan="4">No projects in this group yet.</td></tr>`
+    }</tbody></table></div>`;
+}
+
 async function adminProjects() {
   const { data: projects, error } = await supabase.rpc("organiser_projects");
   const app = document.getElementById("app");
   if (error) {
-    app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
+    app.innerHTML = `<p class="alert err">Run supabase/migrations/0018_three_votes_and_tables.sql in Supabase. ${escapeHtml(error.message)}</p>`;
     return;
   }
-  app.innerHTML = `<h1>Projects</h1>
-    <p class="muted">Approve or reject from this list.</p>
-    ${(projects ?? [])
-      .map(
-        (p) => `<article class="card" style="margin-top:.8rem"><div class="body">
-        <h2>${escapeHtml(p.model_name)}</h2>
-        <p class="muted">${escapeHtml(p.project_code)} · ${p.class_group === "A" ? "Group A" : "Group B"} · ${escapeHtml(p.approval_status)}</p>
-        <div class="actions">
-          <button class="btn" data-act="APPROVED" data-id="${p.id}" type="button">Approve</button>
-          <button class="btn line" data-act="REJECTED" data-id="${p.id}" type="button">Reject</button>
-          <a class="btn line" href="project.html?id=${p.id}">View</a>
-        </div>
-      </div></article>`
-      )
-      .join("")}`;
-  app.querySelectorAll("[data-act]").forEach((btn) => {
-    btn.onclick = async () => {
-      const status = btn.getAttribute("data-act");
-      const { data } = await supabase.rpc("organiser_set_status", {
-        p_project_id: btn.getAttribute("data-id"),
-        p_status: status,
-        p_reason: status === "REJECTED" ? "Does not meet exhibition guidelines" : null,
-      });
-      if (!data?.ok) alert(data?.message || "Could not update");
-      else location.reload();
+  const list = projects ?? [];
+  const render = (editing) => {
+    app.innerHTML = `<h1>Projects</h1>
+      ${listingForm(editing)}
+      ${adminProjectTable(list, "A")}
+      ${adminProjectTable(list, "B")}`;
+    const form = document.getElementById("listing-form");
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const tableRaw = String(fd.get("table_number") || "").trim();
+      const payload = {
+        p_model_name: String(fd.get("model_name") || "").trim(),
+        p_student_names: String(fd.get("student_names") || "").trim(),
+        p_class_group: String(fd.get("class_group") || ""),
+        p_table_number: tableRaw ? Number(tableRaw) : null,
+      };
+      const id = String(fd.get("id") || "").trim();
+      if (id) payload.p_project_id = id;
+      const { data, error: saveErr } = await supabase.rpc("organiser_save_listing", payload);
+      if (saveErr || !data?.ok) {
+        document.getElementById("listing-err").innerHTML = `<p class="alert err">${escapeHtml(
+          saveErr?.message || data?.message || "Could not save."
+        )}</p>`;
+        return;
+      }
+      location.reload();
     };
-  });
+    document.getElementById("listing-cancel")?.addEventListener("click", () => render(null));
+    app.querySelectorAll("[data-edit]").forEach((btn) => {
+      btn.onclick = () => {
+        const row = list.find((p) => p.id === btn.dataset.edit);
+        render(row);
+        app.querySelector("#listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      };
+    });
+  };
+  render(null);
 }
 
 function detailRow(label, value) {
@@ -847,6 +880,7 @@ async function adminProject() {
       ${detailRow("Project name", p.model_name)}
       ${detailRow("Project description", p.description)}
       ${detailRow("Member", memberText)}
+      ${detailRow("Table number", p.table_number)}
       ${detailRow("Class", normalizeClass(p.class_name))}
       ${detailRow("School", p.school_name)}
       ${detailRow("Group", groupName(p.class_group))}
@@ -928,7 +962,7 @@ async function adminVotes() {
   };
 
   app.innerHTML = `<h1>Votes</h1>
-    <p class="muted">Each voter gets one vote in Group A and one in Group B. Records cannot be edited.</p>
+    <p class="muted">Each voter gets 3 votes in Group A and 3 votes in Group B. Records cannot be edited.</p>
     <div class="stats">
       <div class="stat"><span>Total votes</span><b>${list.length}</b></div>
       <div class="stat"><span>Group A votes</span><b>${list.filter((v) => v.class_group === "A").length}</b></div>
