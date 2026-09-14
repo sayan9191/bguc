@@ -55,13 +55,6 @@ export async function mountChrome() {
     header.innerHTML = `<div class="top-inner">
       ${brand(user ? path("list.html") : path("index.html"), t("exhibition"))}
     </div>`;
-    if (user) {
-      const box = document.createElement("form");
-      box.id = "logout";
-      box.className = "signout-corner";
-      box.innerHTML = `<button class="btn-out" type="submit">${t("signOut")}</button>`;
-      document.body.appendChild(box);
-    }
   }
 
   const logout = document.getElementById("logout");

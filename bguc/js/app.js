@@ -1,7 +1,7 @@
 import { COLS, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { t, escapeHtml, wordCount, classOptions, isOtherClass, normalizeClass } from "./i18n.js";
 import { supabase, mediaUrl, mediaUrls, preview, qs } from "./db.js";
-import { mountChrome, path } from "./chrome.js?v=20260914g";
+import { mountChrome, path } from "./chrome.js?v=20260914h";
 
 const page = document.body.dataset.page;
 
@@ -70,8 +70,16 @@ async function homePage() {
         : ""
     }
     <div id="list"></div>
+    <form id="logout-page" class="signout-end">
+      <button class="btn-out" type="submit">${t("signOut")}</button>
+    </form>
     <div id="modal"></div>
   `;
+  document.getElementById("logout-page").onsubmit = async (e) => {
+    e.preventDefault();
+    await supabase.auth.signOut();
+    location.replace(path("index.html"));
+  };
 
   const list = document.getElementById("list");
   if (!openGroups.length) {
