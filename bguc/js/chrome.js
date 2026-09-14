@@ -54,18 +54,17 @@ export async function mountChrome() {
     if (user) await supabase.rpc("ensure_voter").catch(() => {});
     header.innerHTML = `<div class="top-inner">
       ${brand(user ? path("list.html") : path("index.html"), t("exhibition"))}
-      <nav class="nav">
-        ${
-          user
-            ? `<a href="${path("list.html")}">${t("projects")}</a>
-               <form id="logout"><button class="btn-out" type="submit">${t("signOut")}</button></form>`
-            : ""
-        }
-      </nav>
     </div>`;
+    if (user) {
+      const box = document.createElement("form");
+      box.id = "logout";
+      box.className = "signout-corner";
+      box.innerHTML = `<button class="btn-out" type="submit">${t("signOut")}</button>`;
+      document.body.appendChild(box);
+    }
   }
 
-  const logout = header.querySelector("#logout");
+  const logout = document.getElementById("logout");
   if (logout) {
     logout.addEventListener("submit", async (e) => {
       e.preventDefault();
