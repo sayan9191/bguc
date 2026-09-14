@@ -57,21 +57,27 @@ async function homePage() {
   const groups = group ? [group] : [];
 
   document.getElementById("app").innerHTML = `
-    ${
-      openGroups.length
-        ? `<div class="chips">
-      ${openGroups
-        .map(
-          (g) =>
-            `<a class="${group === g ? "on" : ""}" href="list.html?group=${g}">${groupName(g)}</a>`
-        )
-        .join("")}
-    </div>`
-        : ""
-    }
+    <div class="list-bar">
+      <div class="chips">
+        ${openGroups
+          .map(
+            (g) =>
+              `<a class="${group === g ? "on" : ""}" href="list.html?group=${g}">${groupName(g)}</a>`
+          )
+          .join("")}
+      </div>
+      <form id="logout-page">
+        <button class="btn-out" type="submit">${t("signOut")}</button>
+      </form>
+    </div>
     <div id="list"></div>
     <div id="modal"></div>
   `;
+  document.getElementById("logout-page").onsubmit = async (e) => {
+    e.preventDefault();
+    await supabase.auth.signOut();
+    location.replace(path("index.html"));
+  };
 
   const list = document.getElementById("list");
   if (!openGroups.length) {

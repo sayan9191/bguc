@@ -101,6 +101,15 @@ textarea { border-radius: 1rem; min-height: 8rem; }
   text-decoration: none;
 }
 .btn.line { background: transparent; border: 1px solid rgba(216, 207, 192, 0.2); }
+.list-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 1.2rem;
+}
+.list-bar .chips { margin: 0; min-width: 0; }
+.list-bar #logout-page { flex: none; margin-left: auto; }
 .chips { display: flex; gap: 0.5rem; overflow: auto; margin: 0 0 1.2rem; }
 .chips a {
   min-height: 2.6rem;
