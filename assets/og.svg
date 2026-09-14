@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="InfusedByte">
+  <rect width="1200" height="630" fill="#050910"/>
+  <rect x="48" y="48" width="1104" height="534" rx="28" fill="#07111c" stroke="#3d7eff" stroke-opacity=".35"/>
+  <rect x="80" y="88" width="72" height="72" rx="16" fill="#0a1628" stroke="#3d7eff"/>
+  <path d="M98 108h14v40h-14z" fill="#5b93ff"/>
+  <path d="M118 108h14v18h16v10h-16v12h22v10H118z" fill="#e8eef8"/>
+  <text x="172" y="136" fill="#eef3fb" font-family="Arial, sans-serif" font-size="32" font-weight="700">InfusedByte</text>
+  <text x="80" y="280" fill="#eef3fb" font-family="Arial, sans-serif" font-size="52" font-weight="800">Digital products that</text>
+  <text x="80" y="348" fill="#eef3fb" font-family="Arial, sans-serif" font-size="52" font-weight="800">move businesses forward.</text>
+  <text x="80" y="430" fill="#8ea0bb" font-family="Arial, sans-serif" font-size="24">Websites · Mobile apps · Technology solutions</text>
+</svg>

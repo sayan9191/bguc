@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="InfusedByte">
+  <rect width="64" height="64" rx="14" fill="#0a1628"/>
+  <rect x="1" y="1" width="62" height="62" rx="13" fill="none" stroke="#3d7eff" stroke-width="1.5"/>
+  <path d="M18 16h8v32h-8z" fill="#5b93ff"/>
+  <path d="M30 16h8v14h10v8H38v10h16v8H30z" fill="#e8eef8"/>
+</svg>
