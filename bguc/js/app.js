@@ -8,7 +8,7 @@ const page = document.body.dataset.page;
 // The header must never be able to blank the page. If it fails, the content
 // below still renders and the reason is reported.
 try {
-  await mountChrome();
+await mountChrome();
 } catch (err) {
   console.error("Header failed to load", err);
 }
@@ -133,13 +133,13 @@ async function votingOpenGroups() {
 
 function cardHtml(p, user, groupVotes) {
   return `<article class="card vote-card" data-card="${p.id}" data-group="${p.class_group}">
-    <div class="body">
-      <h2>${escapeHtml(p.model_name)}</h2>
+        <div class="body">
+            <h2>${escapeHtml(p.model_name)}</h2>
       <p class="meta">Students name: ${escapeHtml(p.team_display_names || "—")}</p>
       <p class="meta">Table number: ${p.table_number ? escapeHtml(String(p.table_number)) : "—"}</p>
       ${voteButtonHtml(p, user, groupVotes)}
-    </div>
-  </article>`;
+        </div>
+      </article>`;
 }
 
 function groupVoteState(groupVotes, group) {
@@ -455,12 +455,12 @@ async function startVote(id, name, user, votedThis, usedUp, groupLabel) {
   if (!(await confirmVote(name, groupLabel))) return;
   const btn = document.getElementById("vote");
   btn.disabled = true;
-  const { data, error } = await supabase.rpc("submit_vote", { p_project_id: id });
+    const { data, error } = await supabase.rpc("submit_vote", { p_project_id: id });
   if (error || !data?.ok) {
     btn.disabled = false;
     showNotice(error?.message || data?.message || "Could not submit vote.");
-    return;
-  }
+      return;
+    }
   btn.textContent = "✓ Voted";
   btn.classList.add("voted");
 }
@@ -558,8 +558,8 @@ async function studentDetails() {
       className = String(fd.get("class_other") || "").trim();
       if (!className) {
         err.innerHTML = `<p class="alert err">Write your class, or pick one from the list.</p>`;
-        return;
-      }
+      return;
+    }
       // A free-text class cannot be mapped to a group, so the project form decides.
       classGroup = "B";
     } else {
@@ -844,7 +844,7 @@ async function adminProjects() {
   }
   const list = projects ?? [];
   const render = (editing) => {
-    app.innerHTML = `<h1>Projects</h1>
+  app.innerHTML = `<h1>Projects</h1>
       ${listingForm(editing)}
       ${adminProjectTable(list, "A")}
       ${adminProjectTable(list, "B")}
@@ -883,8 +883,8 @@ async function adminProjects() {
         const row = list.find((p) => p.id === btn.dataset.edit);
         render(row);
         app.querySelector("#listing-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      };
-    });
+    };
+  });
     app.querySelectorAll("[data-del]").forEach((btn) => {
       btn.onclick = async () => {
         if (!(await confirmAction("Delete project", `Delete “${btn.dataset.name}”? This cannot be undone.`, "Delete"))) return;
@@ -999,7 +999,7 @@ function adminStudents() {
 
 async function adminVotes() {
   const app = document.getElementById("app");
-  const [{ data: votes, error }, { data: totals }] = await Promise.all([
+  const [{ data: votes, error }, { data: totals, error: totalsError }] = await Promise.all([
     supabase.rpc("organiser_votes"),
     supabase.rpc("organiser_vote_totals"),
   ]);
@@ -1008,17 +1008,23 @@ async function adminVotes() {
     return;
   }
   const list = votes ?? [];
-  const totalsList = totals ?? [];
+  const totalsList = totalsError ? [] : totals ?? [];
   const totalsFor = (g) => totalsList.filter((r) => r.class_group === g);
+  const sumGroup = (g) => totalsFor(g).reduce((n, r) => n + Number(r.vote_count || 0), 0);
+  // Vote rows are capped at 1000 by the API. Project totals are not, so count from those.
+  const groupAVotes = sumGroup("A");
+  const groupBVotes = sumGroup("B");
+  const totalVotes = groupAVotes + groupBVotes;
+  const voterCount = new Set(list.map((v) => v.voter_email)).size;
 
   const totalsTable = (g) => {
     const rows = totalsFor(g);
-    return `<h3>${groupName(g)} · ${rows.reduce((n, r) => n + r.vote_count, 0)} votes</h3>
+    return `<h3>${groupName(g)} · ${rows.reduce((n, r) => n + Number(r.vote_count || 0), 0)} votes</h3>
       <table><thead><tr><th>#</th><th>Project</th><th>Code</th><th>Votes</th></tr></thead>
       <tbody>${
         rows.length
           ? rows
-              .map(
+      .map(
                 (r, i) =>
                   `<tr><td>${i + 1}</td><td>${escapeHtml(r.project_name)}</td><td>${escapeHtml(r.project_code)}</td><td>${r.vote_count}</td></tr>`
               )
@@ -1030,10 +1036,10 @@ async function adminVotes() {
   app.innerHTML = `<h1>Leaderboard</h1>
     <p class="muted">How many votes each project has, and who gave them. Each person gets 3 votes in Group A and 3 in Group B.</p>
     <div class="stats">
-      <div class="stat"><span>Total votes</span><b>${list.length}</b></div>
-      <div class="stat"><span>Group A votes</span><b>${list.filter((v) => v.class_group === "A").length}</b></div>
-      <div class="stat"><span>Group B votes</span><b>${list.filter((v) => v.class_group === "B").length}</b></div>
-      <div class="stat"><span>Voters</span><b>${new Set(list.map((v) => v.voter_email)).size}</b></div>
+      <div class="stat"><span>Total votes</span><b>${totalVotes}</b></div>
+      <div class="stat"><span>Group A votes</span><b>${groupAVotes}</b></div>
+      <div class="stat"><span>Group B votes</span><b>${groupBVotes}</b></div>
+      <div class="stat"><span>Voters</span><b>${voterCount}</b></div>
     </div>
     <h2>Vote totals</h2>
     ${totalsTable("A")}
@@ -1180,7 +1186,7 @@ async function adminSettings() {
       <input type="datetime-local" name="voting_end" value="${toLocalInput(row.voting_end)}" />
       <button class="btn">Save ${groupName(g)}</button>
       <p data-msg></p>
-    </form>`;
+  </form>`;
   };
 
   app.innerHTML = `<h1>Voting</h1>
@@ -1189,7 +1195,7 @@ async function adminSettings() {
 
   app.querySelectorAll("[data-group-form]").forEach((form) => {
     form.onsubmit = async (e) => {
-      e.preventDefault();
+    e.preventDefault();
       const fd = new FormData(form);
       const msg = form.querySelector("[data-msg]");
       const enabled = fd.get("voting_enabled") === "on";
