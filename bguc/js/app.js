@@ -1,6 +1,6 @@
 import { COLS, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { t, escapeHtml, wordCount, classOptions, isOtherClass, normalizeClass } from "./i18n.js";
-import { supabase, mediaUrl, mediaUrls, preview, qs, organiserVotesComplete } from "./db.js?v=20260918a";
+import { supabase, mediaUrl, mediaUrls, preview, qs, organiserVotesComplete, uniqueVoterCount } from "./db.js?v=20260918b";
 import { mountChrome, path } from "./chrome.js?v=20260914h";
 
 const page = document.body.dataset.page;
@@ -1086,9 +1086,7 @@ async function adminVotes() {
   const groupBVotes = sumGroup("B");
   const totalVotes = groupAVotes + groupBVotes;
   const list = await organiserVotesComplete(totalsList.map((r) => r.project_id));
-  const voterCount = new Set(
-    list.map((v) => String(v.voter_email || "").trim().toLowerCase() || String(v.vote_id))
-  ).size;
+  const voterCount = uniqueVoterCount(list);
 
   const totalsTable = (g) => {
     const rows = totalsFor(g);

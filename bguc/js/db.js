@@ -69,48 +69,92 @@ export function qs(name) {
 }
 
 /**
- * organiser_votes() is capped at 1000 rows. Filter by project so each
- * request stays under that cap, then merge. No database change.
+ * organiser_votes() is capped at 1000 rows per request. Page with offset,
+ * then fill any gaps per project. No database change.
  */
 export async function organiserVotesComplete(projectIds) {
-  const ids = [...new Set((projectIds ?? []).filter(Boolean))];
   const headers = {
     apikey: SUPABASE_ANON_KEY,
     Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     Accept: "application/json",
+    "Content-Type": "application/json",
+    Prefer: "count=exact",
   };
   const byId = new Map();
-  const load = async (query) => {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/organiser_votes${query}`, { headers });
+  const load = async (query = "") => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/organiser_votes${query}`, {
+      method: "POST",
+      headers,
+      body: "{}",
+    });
     if (!res.ok) return null;
     const json = await res.json();
     return Array.isArray(json) ? json : null;
   };
+  const add = (rows) => {
+    if (!rows) return 0;
+    let added = 0;
+    for (const row of rows) {
+      if (!row?.vote_id || byId.has(row.vote_id)) continue;
+      byId.set(row.vote_id, row);
+      added += 1;
+    }
+    return added;
+  };
 
+  for (let offset = 0; offset < 200000; offset += 1000) {
+    const rows = await load(`?limit=1000&offset=${offset}`);
+    if (!rows) break;
+    const added = add(rows);
+    if (!added && offset > 0) break;
+    if (rows.length < 1000) break;
+  }
+
+  let oldest = [...byId.values()].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))[0]?.created_at;
+  for (let i = 0; i < 50 && oldest; i += 1) {
+    const rows = await load(
+      `?created_at=lt.${encodeURIComponent(oldest)}&order=created_at.desc&limit=1000`
+    );
+    if (!rows?.length) break;
+    const added = add(rows);
+    if (!added) break;
+    oldest = rows[rows.length - 1]?.created_at;
+    if (rows.length < 1000) break;
+  }
+
+  const ids = [...new Set((projectIds ?? []).filter(Boolean))];
   if (ids.length) {
     const chunk = 8;
     for (let i = 0; i < ids.length; i += chunk) {
       const pages = await Promise.all(
         ids.slice(i, i + chunk).map((id) => load(`?project_id=eq.${encodeURIComponent(id)}`))
       );
-      for (const rows of pages) {
-        if (!rows) continue;
-        for (const row of rows) byId.set(row.vote_id, row);
-      }
+      for (const rows of pages) add(rows);
     }
   }
 
-  if (!ids.length || byId.size <= 1000) {
-    for (const group of ["A", "B"]) {
-      const rows = await load(`?class_group=eq.${group}`);
-      if (!rows) continue;
-      for (const row of rows) byId.set(row.vote_id, row);
-    }
+  for (const group of ["A", "B"]) {
+    add(await load(`?class_group=eq.${group}`));
   }
 
   if (!byId.size) {
     const { data } = await supabase.rpc("organiser_votes");
-    return data ?? [];
+    add(data ?? []);
   }
+
   return [...byId.values()].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+}
+
+export function uniqueVoterCount(votes) {
+  const keys = new Set();
+  for (const v of votes ?? []) {
+    const email = String(v.voter_email || "").trim().toLowerCase();
+    if (email) {
+      keys.add(`e:${email}`);
+      continue;
+    }
+    const name = String(v.voter_name || "").trim().toLowerCase();
+    keys.add(name ? `n:${name}` : `v:${v.vote_id}`);
+  }
+  return keys.size;
 }
