@@ -1,9 +1,11 @@
 import { COLS, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { t, escapeHtml, wordCount, classOptions, isOtherClass, normalizeClass } from "./i18n.js";
-import { supabase, mediaUrl, mediaUrls, preview, qs } from "./db.js";
+import { supabase, mediaUrl, mediaUrls, preview, qs, organiserVotesComplete } from "./db.js?v=20260918a";
 import { mountChrome, path } from "./chrome.js?v=20260914h";
 
 const page = document.body.dataset.page;
+const VOTING_CLOSED = true;
+const RESULTS_ANNOUNCE = "19th September 2026, 6:30 P.M.";
 
 // The header must never be able to blank the page. If it fails, the content
 // below still renders and the reason is reported.
@@ -42,10 +44,65 @@ try {
   if (app) app.innerHTML = `<p class="alert err">${escapeHtml(err.message || String(err))}</p>`;
 }
 
+function votingClosedNotice() {
+  return `<div class="hero closed-hero">
+    <p class="k">Science Exhibition</p>
+    <h1>Voting is closed</h1>
+    <p>Thank you for taking part. Results will be announced on <strong>${RESULTS_ANNOUNCE}</strong>.</p>
+  </div>`;
+}
+
+async function ensureVotingClosed() {
+  if (!VOTING_CLOSED) return;
+  try {
+    const [{ data: settings }, { data: groups }] = await Promise.all([
+      supabase.rpc("organiser_settings"),
+      supabase.rpc("organiser_group_voting"),
+    ]);
+    const s = settings?.[0];
+    if (s?.voting_enabled) {
+      await supabase.rpc("organiser_save_settings", {
+        p_voting_enabled: false,
+        p_results_visible: s.results_visible ?? false,
+      });
+    }
+    for (const g of ["A", "B"]) {
+      const row = (groups ?? []).find((x) => x.class_group === g);
+      if (!row?.voting_enabled) continue;
+      await supabase.rpc("organiser_save_group_voting", {
+        p_class_group: g,
+        p_voting_enabled: false,
+        p_voting_start: row.voting_start ?? null,
+        p_voting_end: row.voting_end ?? null,
+      });
+    }
+  } catch (err) {
+    console.error("Could not close voting windows", err);
+  }
+}
+
 async function homePage() {
+  ensureVotingClosed();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (VOTING_CLOSED) {
+    const app = document.getElementById("app");
+    app.innerHTML = `${votingClosedNotice()}
+      ${
+        user
+          ? `<form id="logout-page" class="signout-end">
+      <button class="btn-out" type="submit">${t("signOut")}</button>
+    </form>`
+          : ""
+      }`;
+    document.getElementById("logout-page")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await supabase.auth.signOut();
+      location.replace(path("index.html"));
+    });
+    return;
+  }
   if (!user) {
     location.replace(path("index.html"));
     return;
@@ -121,6 +178,7 @@ async function homePage() {
 
 /** Groups that are currently collecting votes. If the RPC is missing, both stay closed. */
 async function votingOpenGroups() {
+  if (VOTING_CLOSED) return [];
   const open = [];
   let failed = 0;
   for (const g of ["A", "B"]) {
@@ -310,6 +368,10 @@ function confirmVote(name, label) {
 }
 
 async function leaderboardPage() {
+  if (VOTING_CLOSED) {
+    document.getElementById("app").innerHTML = votingClosedNotice();
+    return;
+  }
   const { data: settings } = await supabase.from("exhibition_settings").select("*").eq("id", 1).maybeSingle();
   const app = document.getElementById("app");
   if (!settings?.results_visible) {
@@ -334,8 +396,13 @@ async function leaderboardPage() {
 }
 
 async function voteLoginPage() {
+  ensureVotingClosed();
   const next = qs("next") || path("list.html");
   const app = document.getElementById("app");
+  if (VOTING_CLOSED) {
+    app.innerHTML = votingClosedNotice();
+    return;
+  }
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -386,6 +453,10 @@ async function projectPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (VOTING_CLOSED) {
+    document.getElementById("app").innerHTML = votingClosedNotice();
+    return;
+  }
   if (!user) {
     location.replace(path("index.html"));
     return;
@@ -440,6 +511,10 @@ function groupName(group) {
 }
 
 async function startVote(id, name, user, votedThis, usedUp, groupLabel) {
+  if (VOTING_CLOSED) {
+    showNotice(`Voting is closed. Results will be announced on ${RESULTS_ANNOUNCE}.`);
+    return;
+  }
   if (!user) {
     location.replace(path("index.html"));
     return;
@@ -999,23 +1074,21 @@ function adminStudents() {
 
 async function adminVotes() {
   const app = document.getElementById("app");
-  const [{ data: votes, error }, { data: totals, error: totalsError }] = await Promise.all([
-    supabase.rpc("organiser_votes"),
-    supabase.rpc("organiser_vote_totals"),
-  ]);
-  if (error) {
-    app.innerHTML = `<p class="alert err">${escapeHtml(error.message)}</p>`;
+  const { data: totals, error: totalsError } = await supabase.rpc("organiser_vote_totals");
+  if (totalsError) {
+    app.innerHTML = `<p class="alert err">${escapeHtml(totalsError.message)}</p>`;
     return;
   }
-  const list = votes ?? [];
-  const totalsList = totalsError ? [] : totals ?? [];
+  const totalsList = totals ?? [];
   const totalsFor = (g) => totalsList.filter((r) => r.class_group === g);
   const sumGroup = (g) => totalsFor(g).reduce((n, r) => n + Number(r.vote_count || 0), 0);
-  // Vote rows are capped at 1000 by the API. Project totals are not, so count from those.
   const groupAVotes = sumGroup("A");
   const groupBVotes = sumGroup("B");
   const totalVotes = groupAVotes + groupBVotes;
-  const voterCount = new Set(list.map((v) => v.voter_email)).size;
+  const list = await organiserVotesComplete(totalsList.map((r) => r.project_id));
+  const voterCount = new Set(
+    list.map((v) => String(v.voter_email || "").trim().toLowerCase() || String(v.vote_id))
+  ).size;
 
   const totalsTable = (g) => {
     const rows = totalsFor(g);

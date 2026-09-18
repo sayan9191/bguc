@@ -67,3 +67,50 @@ export function preview(text, max = 22) {
 export function qs(name) {
   return new URLSearchParams(location.search).get(name);
 }
+
+/**
+ * organiser_votes() is capped at 1000 rows. Filter by project so each
+ * request stays under that cap, then merge. No database change.
+ */
+export async function organiserVotesComplete(projectIds) {
+  const ids = [...new Set((projectIds ?? []).filter(Boolean))];
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    Accept: "application/json",
+  };
+  const byId = new Map();
+  const load = async (query) => {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/organiser_votes${query}`, { headers });
+    if (!res.ok) return null;
+    const json = await res.json();
+    return Array.isArray(json) ? json : null;
+  };
+
+  if (ids.length) {
+    const chunk = 8;
+    for (let i = 0; i < ids.length; i += chunk) {
+      const pages = await Promise.all(
+        ids.slice(i, i + chunk).map((id) => load(`?project_id=eq.${encodeURIComponent(id)}`))
+      );
+      for (const rows of pages) {
+        if (!rows) continue;
+        for (const row of rows) byId.set(row.vote_id, row);
+      }
+    }
+  }
+
+  if (!ids.length || byId.size <= 1000) {
+    for (const group of ["A", "B"]) {
+      const rows = await load(`?class_group=eq.${group}`);
+      if (!rows) continue;
+      for (const row of rows) byId.set(row.vote_id, row);
+    }
+  }
+
+  if (!byId.size) {
+    const { data } = await supabase.rpc("organiser_votes");
+    return data ?? [];
+  }
+  return [...byId.values()].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+}
